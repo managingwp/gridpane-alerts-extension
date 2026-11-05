@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GridPane Alerts</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="icons/icon32.png" alt=""><h1>GridPane Alerts</h1></div>
+    <nav class="tabs">
+      <button class="tab active" data-view="alerts">Alerts</button>
+      <button class="tab" data-view="log">Sync log</button>
+      <button class="tab" data-view="settings">Settings</button>
+    </nav>
+    <div class="sync">
+      <span id="status" class="status">Loading…</span>
+      <button id="syncNow" class="btn">Sync now</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <!-- Alerts view -->
+    <section id="view-alerts" class="view">
+      <div class="filters">
+        <input id="q" type="search" placeholder='Search…  e.g.  disk web1   server:web1   title:"backup failed"   -sync' autocomplete="off">
+        <select id="fSeverity"><option value="">All severities</option><option value="error">Error</option><option value="warning">Warning</option><option value="info">Info</option></select>
+        <select id="fTitle"><option value="">All alert types</option></select>
+        <select id="fServer"><option value="">All servers</option></select>
+        <select id="fSite"><option value="">All sites</option></select>
+        <label class="date">From <input id="fFrom" type="date"></label>
+        <label class="date">To <input id="fTo" type="date"></label>
+        <button id="clearFilters" class="btn ghost">Clear</button>
+      </div>
+      <div class="toolbar">
+        <label class="group-toggle"><input id="groupOn" type="checkbox"> Group similar</label>
+        <select id="groupMode" hidden title="What counts as similar">
+          <option value="type">Same alert, server &amp; site</option>
+          <option value="message">Identical message only</option>
+        </select>
+        <span id="summary" class="muted"></span>
+        <div class="spacer"></div>
+        <details class="menu">
+          <summary class="btn ghost">Columns</summary>
+          <div id="colMenu" class="menu-body"></div>
+        </details>
+        <div class="btn-group">
+          <button id="copyCsv" class="btn ghost" title="Copy what's shown as CSV">Copy CSV</button>
+          <button id="copyJson" class="btn ghost" title="Copy what's shown as JSON">Copy JSON</button>
+        </div>
+        <div class="btn-group">
+          <button id="exportCsv" class="btn ghost">Export CSV</button>
+          <button id="exportJson" class="btn ghost">Export JSON</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="grid">
+          <thead><tr id="head"></tr></thead>
+          <tbody id="body"></tbody>
+        </table>
+        <div id="empty" class="empty" hidden></div>
+      </div>
+      <div class="pager">
+        <button id="prev" class="btn ghost">‹ Prev</button>
+        <span id="pageInfo" class="muted"></span>
+        <button id="next" class="btn ghost">Next ›</button>
+        <select id="pageSize"><option>50</option><option selected>100</option><option>250</option><option>500</option></select>
+      </div>
+    </section>
+
+    <!-- Sync log view -->
+    <section id="view-log" class="view" hidden>
+      <div class="toolbar">
+        <span id="logSummary" class="muted"></span>
+        <div class="spacer"></div>
+        <select id="logFilter">
+          <option value="">All runs</option>
+          <option value="problems">Problems only</option>
+          <option value="new">Runs with new alerts</option>
+        </select>
+        <button id="logExport" class="btn ghost">Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Started</th><th>Run</th><th>Result</th><th>Pages</th><th>Requests</th><th>429s</th>
+            <th>New alerts</th><th>Webhook</th><th>Took</th><th>Notes</th>
+          </tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+        <div id="logEmpty" class="empty" hidden>No syncs logged yet.</div>
+      </div>
+      <p class="muted">The last 1,000 runs are kept.</p>
+    </section>
+
+    <!-- Settings view -->
+    <section id="view-settings" class="view" hidden>
+      <div class="card">
+        <h2>Sync</h2>
+        <label class="row">Check GridPane every
+          <input id="sPoll" type="number" min="1" max="1440" step="1"> minutes</label>
+        <p class="muted">Each check only goes back as far as the last alert it already synced. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
+        <div class="actions">
+          <button id="sLookups" class="btn ghost">Refresh server &amp; site names</button>
+        </div>
+        <p id="sDataInfo" class="muted"></p>
+      </div>
+
+      <div class="card">
+        <h2>Older history (optional)</h2>
+        <p class="muted">Not run automatically. Pulls alerts from before the extension was installed, one page of 8 every 1.5 seconds. If GridPane rate-limits it, it stops and picks up from the same page next time you press the button.</p>
+        <div class="actions">
+          <button id="sHistory" class="btn ghost">Import older history</button>
+          <button id="sHistoryReset" class="btn ghost small">Start over from page 1</button>
+          <span id="sHistoryInfo" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Webhook</h2>
+        <label class="check"><input id="sWhEnabled" type="checkbox"> Send each new alert to a webhook</label>
+        <label class="field">URL<input id="sWhUrl" type="url" placeholder="https://example.com/hooks/gridpane"></label>
+        <label class="field">Signing secret (optional)<input id="sWhSecret" type="password" autocomplete="off" placeholder="Used to sign requests with HMAC-SHA256"></label>
+        <label class="field">Payload format
+          <select id="sWhFormat">
+            <option value="full">Full JSON (n8n, Make, Zapier, your own endpoint)</option>
+            <option value="chat">Chat text only (Slack / Discord / Google Chat incoming webhooks)</option>
+          </select>
+        </label>
+        <label class="check"><input id="sWhBackfill" type="checkbox"> Also send alerts found during a full history import</label>
+        <div class="actions">
+          <button id="sSave" class="btn">Save settings</button>
+          <button id="sTest" class="btn ghost">Send test</button>
+          <span id="sMsg" class="muted"></span>
+        </div>
+        <div class="outbox">
+          <span id="sOutbox" class="muted"></span>
+          <button id="sRetry" class="btn ghost small">Retry now</button>
+          <button id="sClearOutbox" class="btn ghost small">Discard queue</button>
+        </div>
+        <details class="payload">
+          <summary>What gets sent</summary>
+          <p class="muted">A POST with <code>Content-Type: application/json</code>, one request per alert, oldest first. Headers: <code>X-GPAlerts-Event</code>, <code>X-GPAlerts-Id</code> and, when a secret is set, <code>X-GPAlerts-Signature: sha256=&lt;hex HMAC of the raw body&gt;</code>. Failed deliveries are queued and retried with backoff (2, 4, 8… up to 60 minutes).</p>
+          <pre id="sSample"></pre>
+        </details>
+      </div>
+
+      <div class="card danger">
+        <h2>Data</h2>
+        <p class="muted">Everything is stored locally in this browser profile (IndexedDB). Uninstalling the extension deletes it, so export first if you want a copy.</p>
+        <button id="sWipe" class="btn danger">Delete all stored alerts</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
