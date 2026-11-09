@@ -87,7 +87,7 @@
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>Started</th><th>Run</th><th>Result</th><th>Pages</th><th>Requests</th><th>429s</th>
+            <th>Started</th><th>Run</th><th>Result</th><th>Cursor</th><th>Pages</th><th>Requests</th><th>429s</th>
             <th>New alerts</th><th>Webhook</th><th>Took</th><th>Notes</th>
           </tr></thead>
           <tbody id="logBody"></tbody>
@@ -103,9 +103,13 @@
         <h2>Sync</h2>
         <label class="row">Check GridPane every
           <input id="sPoll" type="number" min="1" max="1440" step="1"> minutes</label>
-        <p class="muted">Each check only goes back as far as the last alert it already synced. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
+        <p class="muted">Each check pages back through the newest alerts and a 2-hour overlap, so alerts GridPane adds late are still stored. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
         <div class="actions">
           <button id="sLookups" class="btn ghost">Refresh server &amp; site names</button>
+        </div>
+        <div class="actions">
+          <button id="sGapAudit" class="btn ghost">Check for gaps</button>
+          <span id="sGapInfo" class="muted"></span>
         </div>
         <p id="sDataInfo" class="muted"></p>
       </div>

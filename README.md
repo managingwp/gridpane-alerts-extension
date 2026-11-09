@@ -4,28 +4,37 @@ Keeps every alert from the GridPane notification bell in a searchable archive in
 
 ## Install
 
-1. Unzip this folder somewhere permanent (Chrome loads it from that folder).
-2. Open `chrome://extensions`, turn on **Developer mode** (top right).
-3. Click **Load unpacked** and pick the `gridpane-alerts` folder.
+### From the Chrome Web Store
+
+Not published yet — this section gets the listing link once the first version has been reviewed. That is the recommended install: it installs and updates without any developer settings.
+
+### Manually, from a release
+
+1. Download `gridpane-alerts-<version>.zip` from the [latest release](https://github.com/managingwp/gridpane-alerts-extension/releases/latest) and unzip it somewhere permanent (Chrome loads the extension from that folder).
+2. Open `chrome://extensions` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and pick the unzipped folder.
 4. Pin the bell icon. The archive page opens automatically. The first sync stores only the newest page of alerts and starts tracking from there.
 
-You need to be signed in to my.gridpane.com in the same Chrome profile. To update, replace the folder's files and click the reload icon on the extension card; your stored alerts are kept.
+An unpacked install only stays enabled while Developer mode is on: Chrome disables it if you switch developer mode off. Use the Web Store listing for normal use.
+
+You need to be signed in to my.gridpane.com in the same Chrome profile. To update an unpacked install, replace the folder's files and click the reload icon on the extension card; your stored alerts are kept.
 
 ## How it works
 
 - Reads `GET https://my.gridpane.com/notifications/recent?page=N` with your session, the same endpoint the bell uses. It doesn't mark anything as read.
-- Checks every 5 minutes (configurable, minimum 2). Each check pages back only until it reaches the newest alert from the last completed sync (the cursor), with 1.5 s between pages. Nothing older is requested.
-- The cursor only moves once a check has reached it, so if a check is cut off partway (rate limit, sign-out), the next one fills the gap.
+- Checks every 5 minutes (configurable, minimum 2). Each check pages back from the newest alert through a 2-hour overlap below the last completed sync (the cursor), with 1.5 s between pages. Alerts are stored by id, so anything GridPane added late — even below the cursor — is picked up.
+- The cursor only moves once a check has walked past that 2-hour floor (or reached the end of history). If a check is cut off by a rate limit or sign-out, the next one fills the gap. If it hits the 50-page cap, the cursor stays put, the banner says the gap needs **Import older history**, and automatic checks keep collecting page 1 only until the import runs.
+- **Gaps:** Settings → **Check for gaps** compares the newest 12 pages of the bell with the archive and reports any alert GridPane still serves but the archive does not have. If a check hits the 50-page cap, the banner says so and automatic checks keep collecting page 1 only; **Import older history** backfills the rest.
 - Older history is a manual, resumable import in Settings.
 - **Rate limits (HTTP 429):** a short `Retry-After` (30 s or less) is waited out in place. Otherwise the run stops and automatic checks pause for 5, 15, 30, then 60 minutes on repeated 429s (or longer if GridPane's `Retry-After` says so). Sync now ignores the pause.
 - Server and site names come from `/api/v1/servers` and `/api/v1/sites`, refreshed once a day. Names are kept for deleted servers so old alerts still read properly.
-- Every run is recorded in the **Sync log** tab (last 1,000): result, pages, requests, 429s, new alerts, webhook deliveries, duration and notes. It can be exported as CSV.
+- Every run is recorded in the **Sync log** tab (last 1,000): result, cursor from/to, pages, requests, 429s, new alerts, webhook deliveries, duration and notes. It can be exported as CSV.
 - If Chrome won't send the GridPane cookie to the extension directly, it falls back to running the request inside an open GridPane tab. If you see "Not signed in" while you are signed in, keep a GridPane tab open.
 - Everything is stored locally in IndexedDB. Uninstalling the extension deletes it, so export first.
 
 ## Archive page
 
-Click the toolbar icon. Columns: date, severity, alert, message, server, site, created by; plus optional server IP, read state and ID (Columns menu). Click a header to sort, a row to expand it (full message, raw JSON, copy button).
+Click the toolbar icon. Columns: date, severity, alert, message, server, site, created by; plus optional server IP, read state and ID (Columns menu). Click a header to sort. The Message column shows the full alert text; click a row to expand it for the raw JSON and copy button.
 
 Search terms are ANDed and case-insensitive. Field prefixes: `title:` `msg:` `server:` `ip:` `site:` `by:` `severity:` `id:`. Quote phrases, prefix `-` to exclude:
 
@@ -71,4 +80,27 @@ Severity is a best guess from the alert title and icon (GridPane doesn't send on
 
 - Only runs while Chrome is open.
 - Covers the GridPane team currently selected in the panel.
+- Only stores what GridPane keeps in the notification bell. A transient pop-up that never becomes a bell notification (for example a progress toast) is out of reach; the gap audit can only compare what the bell still serves.
 - Uses internal panel endpoints, not GridPane's public API, so a GridPane front-end change could break it.
+
+## For maintainers
+
+There is no build step. `scripts/package.mjs` copies the runtime files into a flat zip with `manifest.json` at the root, validates the manifest (version format, 132-character description, icon sizes, no `key`/`update_url`, no remote code), and prints the archive's sha256. `dist/` is ignored by git.
+
+```bash
+node --test
+node scripts/package.mjs          # dist/gridpane-alerts-<version>.zip and dist/unpacked/
+node scripts/package.mjs --check  # validate only, write nothing
+```
+
+To release, bump `version` in `manifest.json`, commit, then tag and push:
+
+```bash
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+The `release` workflow runs the tests and the validation again, refuses a tag that does not match the manifest version, and attaches `gridpane-alerts-<version>.zip` to the GitHub Release. That same zip is what the Chrome Web Store dashboard accepts, and what a manual install unpacks.
+
+See `docs/CHROME-WEB-STORE.md` for the store submission steps and `store/listing.json` for the listing copy.
+

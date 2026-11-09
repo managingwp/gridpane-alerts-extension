@@ -1,0 +1,40 @@
+{
+  "name": "GridPane Alerts Archive",
+  "summary": "Keeps a searchable archive of GridPane notification-centre alerts and forwards new ones to a webhook.",
+  "singlePurpose": "Keeps a searchable local archive of the alerts in the user's GridPane notification centre, and can forward each new alert to a webhook the user configures.",
+  "category": "Developer Tools",
+  "language": "en",
+  "privacyPolicyUrl": "https://managingwp.io/gridpane-alerts/privacy",
+  "supportUrl": "https://github.com/managingwp/gridpane-alerts-extension/issues",
+  "homepageUrl": "https://github.com/managingwp/gridpane-alerts-extension",
+  "disclaimer": "Unofficial extension. Not affiliated with, endorsed by, or supported by GridPane.",
+  "justifications": {
+    "storage": "Keeps the sync cursor, the user's settings, the sync log and the cached server and site names between browser restarts.",
+    "unlimitedStorage": "The archive holds alerts that can be several kilobytes each. A busy fleet's history exceeds the 10 MB default quota, and the extension stores it in IndexedDB on the user's own device.",
+    "alarms": "Runs the background check every 5 minutes by default, a period the user can change down to 2 minutes, while Chrome is open.",
+    "scripting": "If Chrome does not attach the my.gridpane.com session cookie to the extension's own request, the extension repeats the same read-only GET inside an open GridPane tab using that tab's session. It only ever targets my.gridpane.com.",
+    "https://my.gridpane.com/*": "Reads the notification, server and site endpoints the GridPane panel itself uses, with the user's own signed-in session. The requests are read-only and never mark an alert as read.",
+    "https://*/*": "The webhook URL is chosen by the user and may be any host. This optional permission is requested for that single origin only when the user saves the webhook, never at install.",
+    "http://*/*": "The same user-chosen webhook may be a self-hosted or internal HTTP endpoint. This optional permission is requested for that single origin only when the user saves the webhook."
+  },
+  "dataUse": {
+    "personallyIdentifiable": true,
+    "healthInfo": false,
+    "financialInfo": false,
+    "authenticationInfo": false,
+    "personalCommunications": false,
+    "location": false,
+    "webHistory": false,
+    "userActivity": false,
+    "websiteContent": true,
+    "note": "Alert text, server names and IP addresses, and the alert author's name are read from the user's own GridPane panel and stored locally in the browser. Personally identifiable information can appear inside alert text, which is why it is disclosed. Nothing leaves the device except to the webhook URL the user configures, if any. The extension never reads cookies, passwords or other authentication information."
+  },
+  "certifications": {
+    "notSold": true,
+    "notUnrelated": true,
+    "notCreditworthiness": true,
+    "limitedUse": true
+  },
+  "remoteCode": "No. All code is packaged in the extension; nothing is fetched or evaluated at runtime.",
+  "testInstructions": "The extension archives the alerts already visible in a signed-in GridPane account. Sign in to https://my.gridpane.com with the test account provided, click the extension icon, and the archive page opens and starts its first sync. If test credentials are not available, the whole interface can still be reviewed from an empty archive: click the icon to open the page, use the Settings tab to set a check interval and to enter a webhook URL (Chrome asks for permission for that one host; the Save button is the only place that asks), and use the Sync log tab to see the recorded runs. Search, filters, column toggles and CSV/JSON export are all reachable with an empty archive."
+}

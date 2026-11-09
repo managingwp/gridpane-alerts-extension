@@ -1,5 +1,6 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
+import { pageOldest, shouldStop, nextCursor, missingIds } from './lib/scan.js';
 
 const BASE = 'https://my.gridpane.com';
 const ALARM = 'gp-sync';
@@ -7,6 +8,11 @@ const LOOKUP_TTL = 24 * 3600 * 1000;   // server/site names: once a day
 const UNKNOWN_LOOKUP_MIN_GAP = 3600 * 1000; // ...or sooner (max hourly) when an alert mentions an unknown one
 const PAGE_DELAY = 1500;                // pause between paged requests
 const MAX_SYNC_PAGES = 50;              // safety cap for a regular sync
+const GAP_AUDIT_PAGES = 12;             // pages compared by the Settings gap audit
+// GridPane can insert a notification with a timestamp older than the newest one
+// already stored (provisioning notices arrive in a batch). Keep scanning this
+// far below the cursor so those alerts are stored instead of skipped forever.
+const OVERLAP_SEC = 2 * 3600;
 const RATE_LIMIT_STEPS = [5, 15, 30, 60]; // minutes to pause after consecutive 429s
 const DEFAULTS = {
   pollMinutes: 5,
@@ -155,7 +161,8 @@ let running = null;
 function startRun(kind, fn) {
   if (running) return running;
   running = (async () => {
-    run = { kind, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [] };
+    const before = await getState();
+    run = { kind, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
     await setState({ syncing: true, syncMode: kind, syncPage: 0 });
     let result;
     try {
@@ -166,13 +173,24 @@ function startRun(kind, fn) {
       result = await handleRunError(e);
     }
     const wh = await flushOutbox().catch((e) => ({ sent: 0, failed: 0, error: String(e) }));
+    const after = await getState();
     const entry = {
       started: run.started, finished: Date.now(), kind, trigger: run.trigger || 'auto',
       status: result.status, pages: run.pages, requests: run.requests, rateLimited: run.rateLimited,
       newCount: run.newCount, webhookSent: wh?.sent || 0, webhookFailed: wh?.failed || 0,
       error: result.error || null, notes: run.notes.join(' · '),
+      cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
     };
     await store.addLog(entry);
+    try {
+      const debug = (await store.kvGet('syncDebug')) || [];
+      debug.push({
+        started: entry.started, kind, trigger: entry.trigger, status: entry.status,
+        cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
+        pages: run.pageDetail,
+      });
+      await store.kvSet('syncDebug', debug.slice(-20));
+    } catch {}
     const state = await getState();
     await setState({
       syncing: false, lastSync: result.ok ? Date.now() : state.lastSync, lastAttempt: Date.now(),
@@ -205,9 +223,10 @@ async function handleRunError(e) {
   return { ok: false, status: 'error', error: msg };
 }
 
-// Regular sync: page back from the newest alert only until the last alert a
-// previous sync completed at (the cursor). Nothing older is requested.
-async function syncNew(r) {
+// Regular sync: page back from the newest alert through the overlap window below
+// the cursor. Alerts are stored by id, so re-reading a page is harmless; what
+// matters is that an alert inserted below the cursor is still seen.
+async function syncNew(r, { shallow = false } = {}) {
   const settings = await getSettings();
   const state = await getState();
   let cursor = state.cursor || null;
@@ -222,9 +241,13 @@ async function syncNew(r) {
   r.countAsUnseen = !firstRun;
   const sendToWebhook = settings.webhookEnabled && settings.webhookUrl && (!firstRun || settings.webhookIncludeBackfill);
 
+  const floor = cursor ? cursor.created_at - OVERLAP_SEC : 0;
+  r.floor = floor;
+
   let newest = null;
   let reached = firstRun;
-  for (let page = 1; page <= MAX_SYNC_PAGES; page++) {
+  const maxPages = shallow ? 1 : MAX_SYNC_PAGES;
+  for (let page = 1; page <= maxPages; page++) {
     const j = await gpGet(`/notifications/recent?page=${page}`);
     r.pages = page;
     await setState({ syncPage: page });
@@ -232,21 +255,20 @@ async function syncNew(r) {
     if (!items.length) { reached = true; break; }
     if (!newest) newest = { id: String(items[0].id), created_at: Number(items[0].created_at) || 0 };
 
-    const recs = [];
-    let hitCursor = false;
-    for (const raw of items) {
-      if (cursor && (String(raw.id) === cursor.id || Number(raw.created_at) < cursor.created_at)) { hitCursor = true; break; }
-      recs.push(normalize(raw));
-    }
-    const fresh = await storeNew(recs, { sendToWebhook });
+    const fresh = await storeNew(items.map(normalize), { sendToWebhook });
     r.newCount += fresh.length;
     r.freshRecs.push(...fresh);
+    r.pageDetail.push({
+      page, count: items.length, first: String(items[0].id), last: String(items[items.length - 1].id),
+      oldest: pageOldest(items), more: !!j.willLoadMoreNoti,
+    });
 
-    if (hitCursor || !j.willLoadMoreNoti) { reached = true; break; }
-    if (firstRun) break; // first run only takes the newest page as the starting point
+    if (firstRun || shallow) { reached = true; break; } // page 1 is the whole run
+    if (shouldStop({ more: j.willLoadMoreNoti, oldest: pageOldest(items), floor })) { reached = true; break; }
     await sleep(PAGE_DELAY);
   }
-  if (!reached) r.notes.push(`stopped at the ${MAX_SYNC_PAGES}-page limit before reaching the last synced alert; anything in between was skipped`);
+  r.capped = !reached;
+  if (r.capped) r.notes.push(`stopped at the ${maxPages}-page limit before reaching the ${OVERLAP_SEC / 3600}-hour overlap; anything below it needs the history import`);
   if (firstRun) r.notes.push('first run: started tracking from the newest alerts');
 
   try {
@@ -261,8 +283,12 @@ async function syncNew(r) {
     else r.notes.push(`name refresh failed: ${e.message || e}`);
   }
 
-  // Only move the cursor once the gap back to the old cursor has been filled.
-  return { cursor: newest || cursor };
+  // Only move the cursor once the walk reached the overlap floor (or the end of
+  // history). A capped walk keeps the old cursor and flags the gap; a shallow
+  // run leaves it alone too, so a later manual walk cannot clear the flag
+  // without actually filling the gap.
+  const next = shallow ? cursor : nextCursor({ reached, newest, current: cursor });
+  return { cursor: next, syncGap: shallow ? !!state.syncGap : r.capped };
 }
 
 // Manual, resumable import of older alerts. Continues where the last import stopped.
@@ -283,7 +309,15 @@ async function importHistory(r) {
     await setState({ historyNextPage: page });
     if (!items.length || !j.willLoadMoreNoti) {
       r.notes.push('reached the oldest alert');
-      return { historyDone: true, historyNextPage: 1 };
+      // A finished import means the archive now holds everything the bell still
+      // serves, so point the cursor at the newest stored alert and drop the gap
+      // flag; the next sync must not re-scan the whole history.
+      const all = await store.getAll('notifications');
+      const top = all.sort((a, b) => b.created_at - a.created_at)[0];
+      return {
+        historyDone: true, historyNextPage: 1, syncGap: false,
+        ...(top ? { cursor: { id: top.id, created_at: top.created_at } } : {}),
+      };
     }
     await sleep(PAGE_DELAY);
   }
@@ -292,8 +326,38 @@ async function importHistory(r) {
 async function sync(trigger = 'auto') {
   const state = await getState();
   if (trigger === 'auto' && state.backoffUntil && state.backoffUntil > Date.now()) return { ok: false, status: 'waiting' };
-  const p = startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r); });
+  // While a gap is waiting for the history import, automatic checks only take
+  // page 1 so new alerts still arrive; a manual sync attempts the full walk.
+  const shallow = trigger === 'auto' && !!state.syncGap;
+  const p = startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { shallow }); });
   return p;
+}
+
+// Read-only: compare the newest pages GridPane still serves with what is stored.
+async function gapAudit() {
+  const remote = [];
+  let pages = 0;
+  for (let page = 1; page <= GAP_AUDIT_PAGES; page++) {
+    const j = await gpGet(`/notifications/recent?page=${page}`);
+    const items = j.notifications || [];
+    remote.push(...items);
+    pages = page;
+    if (!items.length || !j.willLoadMoreNoti) break;
+    await sleep(PAGE_DELAY);
+  }
+  const local = await store.getAll('notifications');
+  const missing = missingIds(remote, new Set(local.map((r) => r.id)));
+  return {
+    ok: true,
+    checked: remote.length,
+    pages,
+    missingCount: missing.length,
+    missing: missing.slice(0, 50).map((n) => ({
+      id: String(n.id),
+      created_at: Number(n.created_at) || 0,
+      title: n.title || '',
+    })),
+  };
 }
 
 // ---------- Webhook ----------
@@ -398,6 +462,7 @@ const handlers = {
   settingsChanged: async () => { await scheduleAlarm(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
   flushOutbox: async () => ({ ok: true, ...(await flushOutbox(true)) }),
+  gapAudit: () => gapAudit(),
   refreshLookups: async () => { await refreshLookups(true); return { ok: true }; },
   seen: async () => { await setState({ unseen: 0 }); await updateBadge(); return { ok: true }; },
 };

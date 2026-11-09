@@ -228,7 +228,7 @@ function renderHead() {
 function cell(c, r) {
   const td = el('td', { className: `c-${c.key}` });
   if (c.key === 'severity') td.append(el('span', { className: `sev ${r.severity}`, textContent: r.severity }));
-  else if (c.key === 'message') td.append(el('div', { className: 'clip' }, highlight(r.message)));
+  else if (c.key === 'message') td.append(el('div', { className: 'msg' }, highlight(r.message)));
   else if (c.key === 'date') { td.textContent = fmtDate(r.created_at); td.title = r.date_text || ''; }
   else if (c.key === 'count') {
     const n = r._group?.count ?? 1;
@@ -426,6 +426,9 @@ async function renderStatus() {
   } else if (state.status === 'error' && !state.syncing) {
     banner.textContent = `Last sync failed: ${state.lastError}`;
     banner.hidden = false;
+  } else if (state.syncGap && !state.syncing) {
+    banner.textContent = 'The gap back to the last synced alert is too large for a normal check. New alerts are still collected; run Import older history to fill the rest.';
+    banner.hidden = false;
   } else banner.hidden = true;
   $('syncNow').disabled = !!state.syncing;
 }
@@ -434,6 +437,8 @@ async function renderStatus() {
 const RESULT_LABEL = { ok: 'OK', rate_limited: 'Rate limited', signed_out: 'Signed out', error: 'Error' };
 const RESULT_CLASS = { ok: 'info', rate_limited: 'warning', signed_out: 'warning', error: 'error' };
 const dur = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} m ${Math.round((ms % 60000) / 1000)} s`);
+const clock = (unix) => (unix ? new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–');
+const cursorText = (e) => `${clock(e.cursorFrom?.created_at)} → ${clock(e.cursorTo?.created_at)}`;
 let logRows = [];
 
 async function renderLog() {
@@ -452,6 +457,7 @@ async function renderLog() {
       el('td', { className: 'c-date', textContent: new Date(e.started).toLocaleString() }),
       el('td', { textContent: `${e.kind === 'history' ? 'History import' : 'Sync'}${e.trigger === 'manual' ? ' (manual)' : ''}` }),
       res,
+      el('td', { className: 'c-date', textContent: cursorText(e) }),
       el('td', { textContent: e.pages }),
       el('td', { textContent: e.requests }),
       el('td', { textContent: e.rateLimited || '–' }),
@@ -593,6 +599,21 @@ $('sLookups').onclick = async () => {
   $('sLookups').disabled = false;
   if (!r?.ok) msg(`Couldn’t refresh names: ${r?.error}`, true);
   await load(); renderSettingsInfo();
+};
+$('sGapAudit').onclick = async () => {
+  const btn = $('sGapAudit');
+  const info = $('sGapInfo');
+  btn.disabled = true;
+  info.textContent = 'Checking…';
+  const r = await send({ type: 'gapAudit' });
+  btn.disabled = false;
+  if (!r?.ok) { info.textContent = `Couldn’t check: ${r?.error || 'unknown error'}`; return; }
+  if (!r.missingCount) {
+    info.textContent = `No gaps in the newest ${r.checked.toLocaleString()} alerts (${r.pages} page${r.pages === 1 ? '' : 's'}).`;
+    return;
+  }
+  const newest = r.missing.slice(0, 3).map((m) => `${m.title} (${new Date(m.created_at * 1000).toLocaleString()})`).join('; ');
+  info.textContent = `${r.missingCount.toLocaleString()} alert${r.missingCount === 1 ? '' : 's'} on GridPane are not stored, newest: ${newest}. Run Import older history.`;
 };
 $('sWipe').onclick = async () => {
   if (!confirm('Delete every stored alert from this browser? GridPane itself is not affected.')) return;

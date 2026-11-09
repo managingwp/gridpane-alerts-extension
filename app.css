@@ -63,7 +63,7 @@ tbody tr.row.open { background: var(--row-open); }
 td.c-date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
 td.c-title { font-weight: 550; min-width: 180px; }
 td.c-message { color: var(--muted); max-width: 520px; }
-td.c-message .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
+td.c-message .msg { white-space: pre-line; overflow-wrap: anywhere; }
 td.c-server, td.c-site, td.c-ip { white-space: nowrap; }
 td.c-id { font-family: var(--mono); font-size: 12px; }
 .sev { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
