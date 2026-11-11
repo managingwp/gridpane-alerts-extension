@@ -103,22 +103,25 @@
         <h2>Sync</h2>
         <label class="row">Check GridPane every
           <input id="sPoll" type="number" min="1" max="1440" step="1"> minutes</label>
-        <p class="muted">Each check pages back through the newest alerts and a 2-hour overlap, so alerts GridPane adds late are still stored. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
+        <label class="row">Catch-up overlap
+          <input id="sOverlap" type="number" min="0.5" max="24" step="0.5"> hours</label>
+        <p class="muted">Each check pages back through the newest alerts and the configured catch-up overlap (2 hours by default), so alerts GridPane adds late are still stored. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
         <div class="actions">
           <button id="sLookups" class="btn ghost">Refresh server &amp; site names</button>
         </div>
         <div class="actions">
           <button id="sGapAudit" class="btn ghost">Check for gaps</button>
+          <button id="sGapImport" class="btn ghost small" hidden>Import now</button>
           <span id="sGapInfo" class="muted"></span>
         </div>
         <p id="sDataInfo" class="muted"></p>
       </div>
 
       <div class="card">
-        <h2>Older history (optional)</h2>
-        <p class="muted">Not run automatically. Pulls alerts from before the extension was installed, one page of 8 every 1.5 seconds. If GridPane rate-limits it, it stops and picks up from the same page next time you press the button.</p>
+        <h2>Older history</h2>
+        <p class="muted">Older alerts are collected automatically: after the newest ones, every check reads a batch of the pages below (20 per automatic check, more when you press the button). <b>Fill older history</b> only catches up sooner — one page of 8 every 1.5 seconds. If GridPane rate-limits it, the batch stops and the next check resumes from the same page.</p>
         <div class="actions">
-          <button id="sHistory" class="btn ghost">Import older history</button>
+          <button id="sHistory" class="btn ghost">Fill older history</button>
           <button id="sHistoryReset" class="btn ghost small">Start over from page 1</button>
           <span id="sHistoryInfo" class="muted"></span>
         </div>
@@ -133,6 +136,7 @@
           <select id="sWhFormat">
             <option value="full">Full JSON (n8n, Make, Zapier, your own endpoint)</option>
             <option value="chat">Chat text only (Slack / Discord / Google Chat incoming webhooks)</option>
+            <option value="slack">Slack message (Block Kit)</option>
           </select>
         </label>
         <label class="check"><input id="sWhBackfill" type="checkbox"> Also send alerts found during a full history import</label>

@@ -14,7 +14,7 @@ Exports whatever is currently filtered as CSV or JSON.
 Shows a badge with the number of new alerts since you last opened the page.
 Records every check in a sync log, including what was scanned, what was stored and how long it took, and exports that log as CSV.
 Reports gaps in the archive and re-imports older history, so an interrupted check does not leave a hole.
-Optionally forwards each new alert to a webhook you choose — full JSON or chat text, with an optional HMAC signature, a retry queue, and headers you can de-duplicate on.
+Optionally forwards each new alert to a webhook you choose — full JSON, chat text or a Slack message, with an optional HMAC signature, a retry queue, and headers you can de-duplicate on.
 
 HOW TO USE IT
 

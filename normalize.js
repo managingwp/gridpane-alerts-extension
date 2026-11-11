@@ -64,10 +64,71 @@ export function summaryText(rec, r) {
   return `[${rec.severity.toUpperCase()}] ${rec.title}${where ? ` (${where})` : ''}\n${rec.message}`;
 }
 
+const SLACK_COLORS = { error: '#dc2626', warning: '#d97706', info: '#2563eb' };
+const SLACK_EMOJI = { error: ':rotating_light:', warning: ':warning:', info: ':information_source:' };
+
+// Slack reads &, < and > as control characters in every text field, so alert
+// text and names must be escaped before they reach a block.
+export function escapeSlack(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function truncate(value, max) {
+  const s = String(value ?? '');
+  return s.length <= max ? s : s.slice(0, Math.max(0, max - 1)) + '…';
+}
+
+export function slackColor(severity) {
+  return SLACK_COLORS[severity] || SLACK_COLORS.info;
+}
+
+// A Block Kit card in one coloured attachment: header, fields, the alert text
+// and a link back to the panel. The top-level `text` is the notification
+// fallback. Slack's documented limits are enforced locally, after escaping.
+export function slackPayload(rec, lookups) {
+  const r = resolve(rec, lookups);
+  const emoji = SLACK_EMOJI[rec.severity] || SLACK_EMOJI.info;
+  const fields = [
+    { type: 'mrkdwn', text: truncate(escapeSlack(`*Severity*\n${rec.severity || 'info'}`), 2000) },
+  ];
+  if (r.server_label) {
+    const server = `${r.server_label}${r.server_ip ? ` (${r.server_ip})` : ''}`;
+    fields.push({ type: 'mrkdwn', text: truncate(escapeSlack(`*Server*\n${server}`), 2000) });
+  }
+  if (r.site_url) fields.push({ type: 'mrkdwn', text: truncate(escapeSlack(`*Site*\n${r.site_url}`), 2000) });
+  if (rec.created_at) {
+    fields.push({ type: 'mrkdwn', text: truncate(escapeSlack(`*Created*\n${new Date(rec.created_at * 1000).toISOString()}`), 2000) });
+  }
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: truncate(escapeSlack(`${emoji} ${rec.title || 'GridPane alert'}`), 150), emoji: true },
+    },
+    { type: 'section', fields },
+  ];
+  if (rec.message) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: truncate(escapeSlack(rec.message), 3000) } });
+  }
+  blocks.push({
+    type: 'context',
+    elements: [{ type: 'mrkdwn', text: `<https://my.gridpane.com|Open GridPane> · ${escapeSlack(rec.id || '')}` }],
+  });
+
+  return {
+    text: truncate(escapeSlack(summaryText(rec, r)), 3000),
+    attachments: [{ color: slackColor(rec.severity), blocks }],
+  };
+}
+
 export function webhookPayload(rec, lookups, format = 'full') {
   const r = resolve(rec, lookups);
   const text = summaryText(rec, r);
   if (format === 'chat') return { text, content: text.slice(0, 1990) };
+  if (format === 'slack') return slackPayload(rec, lookups);
   return {
     event: 'gridpane.notification',
     text,

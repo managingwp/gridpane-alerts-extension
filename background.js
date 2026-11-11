@@ -1,7 +1,7 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
-import { pageOldest, shouldStop, nextCursor, missingIds } from './lib/scan.js';
-import { pickGridPaneTab } from './lib/tabs.js';
+import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
+import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -9,15 +9,18 @@ const ALARM = 'gp-sync';
 const LOOKUP_TTL = 24 * 3600 * 1000;   // server/site names: once a day
 const UNKNOWN_LOOKUP_MIN_GAP = 3600 * 1000; // ...or sooner (max hourly) when an alert mentions an unknown one
 const PAGE_DELAY = 1500;                // pause between paged requests
-const MAX_SYNC_PAGES = 50;              // safety cap for a regular sync
-const GAP_AUDIT_PAGES = 12;             // pages compared by the Settings gap audit
+const MAX_WALK_PAGES = 50;              // safety cap for the new-alert walk
+const AUTO_BACKFILL_PAGES = 20;         // older pages an automatic run consumes
+const MANUAL_BACKFILL_PAGES = 100;      // older pages a watched manual run consumes
 // GridPane can insert a notification with a timestamp older than the newest one
-// already stored (provisioning notices arrive in a batch). Keep scanning this
-// far below the cursor so those alerts are stored instead of skipped forever.
-const OVERLAP_SEC = 2 * 3600;
+// already stored (provisioning notices arrive in a batch). Keep scanning the
+// configured overlap below the cursor so those alerts are stored instead of
+// skipped forever. The setting is in hours; `overlapSeconds` keeps the old
+// two-hour default and bounds the range.
 const RATE_LIMIT_STEPS = [5, 15, 30, 60]; // minutes to pause after consecutive 429s
 const DEFAULTS = {
   pollMinutes: 5,
+  overlapHours: 2, // 0.5–24 hours, see overlapSeconds()
   webhookEnabled: false,
   webhookUrl: '',
   webhookSecret: '',
@@ -175,10 +178,18 @@ async function storeNew(recs, { sendToWebhook }) {
 
 // ---------- Runs (sync / history import), logging, rate limiting ----------
 
+// Backfill progress lives in state.backfill. Older installs only had the manual
+// history import, so their next page is carried over instead of restarting.
+function backfillState(state) {
+  if (state.backfill) return state.backfill;
+  if (state.historyDone) return { nextPage: 1, done: true };
+  return { nextPage: state.historyNextPage || 1, done: false };
+}
+
 let running = null;
 const GRIDPANE_READ_KINDS = new Set(['sync', 'history']);
 function startRun(kind, fn, trigger = 'auto') {
-  if (running) return running;
+  if (running) return { ok: false, status: 'busy', error: 'A run is already in progress' };
   running = (async () => {
     const before = await getState();
     run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
@@ -202,6 +213,7 @@ function startRun(kind, fn, trigger = 'auto') {
       newCount: run.newCount, webhookSent: wh?.sent || 0, webhookFailed: wh?.failed || 0,
       error: result.error || null, notes: run.notes.join(' · '),
       cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
+      backfillFrom: run.backfillFrom ?? null, backfillTo: run.backfillTo ?? null, backfillDone: run.backfillDone ?? null,
     };
     // An automatic alarm in the no-tab state would add 288 rows a day at the
     // 5-minute default and push real runs out of the 1,000-entry log. A manual
@@ -214,6 +226,7 @@ function startRun(kind, fn, trigger = 'auto') {
         debug.push({
           started: entry.started, kind, trigger: entry.trigger, status: entry.status,
           cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
+          backfillFrom: entry.backfillFrom, backfillTo: entry.backfillTo, backfillDone: entry.backfillDone,
           pages: run.pageDetail,
         });
         await store.kvSet('syncDebug', debug.slice(-20));
@@ -255,12 +268,15 @@ async function handleRunError(e) {
   return { ok: false, status: 'error', error: msg };
 }
 
-// Regular sync: page back from the newest alert through the overlap window below
-// the cursor. Alerts are stored by id, so re-reading a page is harmless; what
-// matters is that an alert inserted below the cursor is still seen.
-async function syncNew(r, { shallow = false } = {}) {
+// Regular sync: walk back from the newest alert through the overlap window below
+// the cursor, then continue into the backfill so older alerts arrive on their own.
+// Alerts are stored by id, so re-reading a page is harmless; what matters is that
+// an alert inserted below the cursor is still seen and that the bell is emptied
+// in throttled, resumable batches.
+async function syncNew(r, { batch }) {
   const settings = await getSettings();
   const state = await getState();
+  const backfill = backfillState(state);
   let cursor = state.cursor || null;
 
   // First run (or upgrade): if alerts are already stored, start from the newest one.
@@ -271,23 +287,28 @@ async function syncNew(r, { shallow = false } = {}) {
   }
   const firstRun = !cursor;
   r.countAsUnseen = !firstRun;
-  const sendToWebhook = settings.webhookEnabled && settings.webhookUrl && (!firstRun || settings.webhookIncludeBackfill);
+  const sendNew = settings.webhookEnabled && settings.webhookUrl && (!firstRun || settings.webhookIncludeBackfill);
+  // Backfilled alerts keep the existing opt-in: a catch-up run must not replay
+  // old alerts unless the user asked for it.
+  const sendBackfill = settings.webhookEnabled && settings.webhookUrl && settings.webhookIncludeBackfill;
 
-  const floor = cursor ? cursor.created_at - OVERLAP_SEC : 0;
+  const overlap = overlapSeconds(settings.overlapHours);
+  const floor = cursor ? cursor.created_at - overlap : 0;
   r.floor = floor;
 
   let newest = null;
   let reached = firstRun;
-  const maxPages = shallow ? 1 : MAX_SYNC_PAGES;
-  for (let page = 1; page <= maxPages; page++) {
+  let lastWalkedPage = 0;
+  for (let page = 1; page <= MAX_WALK_PAGES; page++) {
     const j = await gpGet(`/notifications/recent?page=${page}`);
     r.pages = page;
+    lastWalkedPage = page;
     await setState({ syncPage: page });
     const items = j.notifications || [];
     if (!items.length) { reached = true; break; }
-    if (!newest) newest = { id: String(items[0].id), created_at: Number(items[0].created_at) || 0 };
+    if (!newest) newest = newestOf(items);
 
-    const fresh = await storeNew(items.map(normalize), { sendToWebhook });
+    const fresh = await storeNew(items.map(normalize), { sendToWebhook: sendNew });
     r.newCount += fresh.length;
     r.freshRecs.push(...fresh);
     r.pageDetail.push({
@@ -295,13 +316,61 @@ async function syncNew(r, { shallow = false } = {}) {
       oldest: pageOldest(items), more: !!j.willLoadMoreNoti,
     });
 
-    if (firstRun || shallow) { reached = true; break; } // page 1 is the whole run
+    if (firstRun) { reached = true; break; } // page 1 is the whole new-alert walk
     if (shouldStop({ more: j.willLoadMoreNoti, oldest: pageOldest(items), floor })) { reached = true; break; }
     await sleep(PAGE_DELAY);
   }
   r.capped = !reached;
-  if (r.capped) r.notes.push(`stopped at the ${maxPages}-page limit before reaching the ${OVERLAP_SEC / 3600}-hour overlap; anything below it needs the history import`);
+  if (r.capped) r.notes.push(`stopped at the ${MAX_WALK_PAGES}-page limit before reaching the ${overlap / 3600}-hour overlap; the backfill continues below it`);
   if (firstRun) r.notes.push('first run: started tracking from the newest alerts');
+
+  // Backfill: resume below the page the new-alert walk just read. A finished
+  // backfill stays finished unless this walk was capped, in which case the pages
+  // below the cap still need reading.
+  let startPage = backfillStart({ nextPage: backfill.nextPage, lastWalkedPage });
+  if (backfill.done && !r.capped) startPage = null;
+
+  let pagesFrom = null;
+  let pagesTo = null;
+  let done = backfill.done;
+  let pausedAt = null;
+  if (startPage) {
+    let page = startPage;
+    for (;;) {
+      const j = await gpGet(`/notifications/recent?page=${page}`);
+      r.pages = Math.max(r.pages, page);
+      await setState({ syncPage: page });
+      const items = j.notifications || [];
+      const fresh = await storeNew(items.map(normalize), { sendToWebhook: sendBackfill });
+      r.newCount += fresh.length;
+      r.freshRecs.push(...fresh);
+      r.pageDetail.push({
+        page, backfill: true, count: items.length,
+        first: items.length ? String(items[0].id) : null, last: items.length ? String(items[items.length - 1].id) : null,
+        oldest: pageOldest(items), more: !!j.willLoadMoreNoti,
+      });
+      if (pagesFrom == null) pagesFrom = page;
+      pagesTo = page;
+      const more = !!j.willLoadMoreNoti && items.length > 0;
+      done = !more;
+      if (batchDone({ page, startPage, batch, more })) {
+        pausedAt = more ? page + 1 : null;
+        break;
+      }
+      page++;
+      await sleep(PAGE_DELAY);
+    }
+    r.notes.push(`backfill: pages ${pagesFrom}–${pagesTo}`);
+    if (done) r.notes.push('backfill complete (reached the oldest alert)');
+    else if (pausedAt) r.notes.push(`backfill paused at page ${pausedAt} (batch)`);
+  }
+
+  const nextBackfill = startPage
+    ? { nextPage: pausedAt || 1, done, updatedAt: Date.now() }
+    : { ...backfill, updatedAt: Date.now() };
+  r.backfillFrom = pagesFrom;
+  r.backfillTo = pagesTo;
+  r.backfillDone = done;
 
   try {
     // New servers/sites (e.g. a fresh clone) show up as IDs until names are refreshed,
@@ -315,80 +384,48 @@ async function syncNew(r, { shallow = false } = {}) {
     else r.notes.push(`name refresh failed: ${e.message || e}`);
   }
 
-  // Only move the cursor once the walk reached the overlap floor (or the end of
-  // history). A capped walk keeps the old cursor and flags the gap; a shallow
-  // run leaves it alone too, so a later manual walk cannot clear the flag
-  // without actually filling the gap.
-  const next = shallow ? cursor : nextCursor({ reached, newest, current: cursor });
-  return { cursor: next, syncGap: shallow ? !!state.syncGap : r.capped };
-}
-
-// Manual, resumable import of older alerts. Continues where the last import stopped.
-async function importHistory(r) {
-  const settings = await getSettings();
-  const state = await getState();
-  const sendToWebhook = settings.webhookEnabled && settings.webhookUrl && settings.webhookIncludeBackfill;
-  let page = state.historyNextPage || 1;
-  r.notes.push(`starting at page ${page}`);
-  for (;;) {
-    const j = await gpGet(`/notifications/recent?page=${page}`);
-    r.pages++;
-    await setState({ syncPage: page });
-    const items = j.notifications || [];
-    const fresh = await storeNew(items.map(normalize), { sendToWebhook });
-    r.newCount += fresh.length;
-    page++;
-    await setState({ historyNextPage: page });
-    if (!items.length || !j.willLoadMoreNoti) {
-      r.notes.push('reached the oldest alert');
-      // A finished import means the archive now holds everything the bell still
-      // serves, so point the cursor at the newest stored alert and drop the gap
-      // flag; the next sync must not re-scan the whole history.
-      const all = await store.getAll('notifications');
-      const top = all.sort((a, b) => b.created_at - a.created_at)[0];
-      return {
-        historyDone: true, historyNextPage: 1, syncGap: false,
-        ...(top ? { cursor: { id: top.id, created_at: top.created_at } } : {}),
-      };
-    }
-    await sleep(PAGE_DELAY);
-  }
+  // The cursor only moves once the walk reached the overlap floor (or the end of
+  // history), and never goes backwards. The gap flag now tracks the backfill: it
+  // clears when GridPane has no more pages below, not when an audit happened to
+  // see something.
+  const next = nextCursor({ reached, newest, current: cursor });
+  return { cursor: next, syncGap: !nextBackfill.done, backfill: nextBackfill };
 }
 
 async function sync(trigger = 'auto') {
   const state = await getState();
   if (trigger === 'auto' && state.backoffUntil && state.backoffUntil > Date.now()) return { ok: false, status: 'waiting' };
-  // While a gap is waiting for the history import, automatic checks only take
-  // page 1 so new alerts still arrive; a manual sync attempts the full walk.
-  const shallow = trigger === 'auto' && !!state.syncGap;
-  const p = startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { shallow }); }, trigger);
-  return p;
+  // A manual run is watched by the user, so it takes the larger batch; automatic
+  // runs stay page-paced and rate-limit aware.
+  const batch = trigger === 'manual' ? MANUAL_BACKFILL_PAGES : AUTO_BACKFILL_PAGES;
+  return startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { batch }); }, trigger);
 }
 
-// Read-only: compare the newest pages GridPane still serves with what is stored.
+// Read-only: compare the whole bell GridPane still serves with what is stored.
 async function gapAudit() {
   const remote = [];
   let pages = 0;
-  for (let page = 1; page <= GAP_AUDIT_PAGES; page++) {
+  let done = false;
+  for (let page = 1; page <= MAX_WALK_PAGES; page++) {
     const j = await gpGet(`/notifications/recent?page=${page}`);
     const items = j.notifications || [];
     remote.push(...items);
     pages = page;
-    if (!items.length || !j.willLoadMoreNoti) break;
+    if (!items.length || !j.willLoadMoreNoti) { done = true; break; }
     await sleep(PAGE_DELAY);
   }
   const local = await store.getAll('notifications');
-  const missing = missingIds(remote, new Set(local.map((r) => r.id)));
+  const missing = sortNewestFirst(missingIds(remote, new Set(local.map((r) => r.id))));
+  const brief = (n) => (n ? { id: String(n.id), created_at: Number(n.created_at) || 0, title: n.title || '' } : null);
   return {
     ok: true,
     checked: remote.length,
     pages,
+    done,
     missingCount: missing.length,
-    missing: missing.slice(0, 50).map((n) => ({
-      id: String(n.id),
-      created_at: Number(n.created_at) || 0,
-      title: n.title || '',
-    })),
+    newest: brief(missing[0]),
+    oldest: brief(missing[missing.length - 1]),
+    missing: missing.slice(0, 50).map(brief),
   };
 }
 
@@ -487,6 +524,32 @@ chrome.runtime.onStartup.addListener(scheduleAlarm);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) sync('auto'); });
 chrome.action.onClicked.addListener(() => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }));
 
+// A tab opened after a no-tab check is the user doing what the banner asked.
+// Retry once it finishes loading, with a short cooldown so several tabs (or a
+// reload) cannot start a run each. Other states, and a 429 pause, are left to
+// the user or the normal alarm.
+let lastTabRetry = 0;
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  (async () => {
+    try {
+      const url = tab?.url || changeInfo.url;
+      // Cheap filter first: unrelated tab loads must not read extension state.
+      if (changeInfo.status !== 'complete' || !isGridPaneUrl(url)) return;
+      const state = await getState();
+      const now = Date.now();
+      if (!shouldRetryOnTabLoad({
+        status: state.status,
+        complete: true,
+        url,
+        now,
+        lastRetryAt: lastTabRetry,
+      })) return;
+      lastTabRetry = now;
+      await sync('auto');
+    } catch {}
+  })();
+});
+
 // One click from the archive page: focus the panel tab already open, or open it.
 async function openGridPane() {
   const tab = await gridPaneTab();
@@ -509,8 +572,8 @@ async function requireTabOrReply(idle) {
 
 const handlers = {
   sync: () => sync('manual'),
-  importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return importHistory(r); }, 'manual'),
-  resetHistory: async () => { await setState({ historyNextPage: 1, historyDone: false }); return { ok: true }; },
+  importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return syncNew(r, { batch: MANUAL_BACKFILL_PAGES }); }, 'manual'),
+  resetHistory: async () => { await setState({ backfill: { nextPage: 1, done: false } }); return { ok: true }; },
   settingsChanged: async () => { await scheduleAlarm(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
   flushOutbox: async () => ({ ok: true, ...(await flushOutbox(true)) }),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isGridPaneUrl, pickGridPaneTab } from '../lib/tabs.js';
+import { isGridPaneUrl, pickGridPaneTab, shouldRetryOnTabLoad } from '../lib/tabs.js';
 
 const TAB = (url, extra = {}) => ({ id: 1, url, discarded: false, ...extra });
 
@@ -69,4 +69,42 @@ test('pickGridPaneTab returns null when no tab matches', () => {
   assert.equal(pickGridPaneTab([TAB('https://example.com/'), TAB('https://notmy.gridpane.com/')]), null);
   assert.equal(pickGridPaneTab([]), null);
   assert.equal(pickGridPaneTab(undefined), null);
+});
+
+const RETRY = (extra = {}) => ({
+  status: 'no_tab',
+  complete: true,
+  url: 'https://my.gridpane.com/servers',
+  now: 60000,
+  lastRetryAt: 0,
+  ...extra,
+});
+
+test('shouldRetryOnTabLoad retries a completed panel tab after a no-tab run', () => {
+  assert.equal(shouldRetryOnTabLoad(RETRY()), true);
+});
+
+test('shouldRetryOnTabLoad ignores every other sync state', () => {
+  for (const status of ['ok', 'signed_out', 'error', 'rate_limited']) {
+    assert.equal(shouldRetryOnTabLoad(RETRY({ status })), false);
+  }
+});
+
+test('shouldRetryOnTabLoad ignores an incomplete load', () => {
+  assert.equal(shouldRetryOnTabLoad(RETRY({ complete: false })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ complete: undefined })), false);
+});
+
+test('shouldRetryOnTabLoad ignores a tab that is not the exact panel', () => {
+  assert.equal(shouldRetryOnTabLoad(RETRY({ url: 'http://my.gridpane.com/' })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ url: 'https://app.my.gridpane.com/' })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ url: 'https://notmy.gridpane.com/' })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ url: undefined })), false);
+});
+
+test('shouldRetryOnTabLoad enforces the cooldown', () => {
+  assert.equal(shouldRetryOnTabLoad(RETRY({ now: 1000, lastRetryAt: 0 })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ now: 30000, lastRetryAt: 0 })), true);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ now: 60000, lastRetryAt: 45000 })), false);
+  assert.equal(shouldRetryOnTabLoad(RETRY({ now: 60000, lastRetryAt: 0, cooldownMs: 60000 })), true);
 });

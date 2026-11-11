@@ -15,7 +15,7 @@ GridPane Alerts Archive ("the extension") is an unofficial browser extension tha
 
 - The alerts it reads from your GridPane notification centre: alert title, message, severity, timestamps, the server and site they relate to, and the name of the person who triggered them.
 - The names and identifiers of your GridPane servers and sites, so old alerts still read properly after a server is deleted.
-- Your settings: check interval, which columns to show, webhook URL and format, and whether to forward imported history.
+- Your settings: check interval, catch-up overlap window, which columns to show, webhook URL and format, and whether to forward imported history.
 - The sync log: one row per check, with the cursor position, page and request counts, new alerts, webhook deliveries, duration and any error.
 - A sync cursor and a small debug buffer of the most recent checks.
 

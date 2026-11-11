@@ -411,6 +411,8 @@ async function renderStatus() {
     st.textContent = 'GridPane tab not open';
   } else if (state.status === 'error') {
     st.textContent = 'Sync error';
+  } else if (state.backfill && state.backfill.done === false) {
+    st.textContent = `Backfilling older alerts · next page ${state.backfill.nextPage || 1}`;
   } else if (state.lastSync) {
     st.textContent = `Synced ${ago(state.lastSync)}`;
   } else {
@@ -438,7 +440,12 @@ async function renderStatus() {
     banner.textContent = `Last sync failed: ${state.lastError}`;
     banner.hidden = false;
   } else if (state.syncGap && !state.syncing) {
-    banner.textContent = 'The gap back to the last synced alert is too large for a normal check. New alerts are still collected; run Import older history to fill the rest.';
+    const fill = el('button', { className: 'btn ghost small', textContent: 'Fill older history' });
+    fill.addEventListener('click', () => {
+      send({ type: 'importHistory' });
+      setTimeout(renderStatus, 300);
+    });
+    banner.replaceChildren('Older alerts are still being collected automatically, but the gap back to the last synced alert is large. ', fill, ' to catch up now.');
     banner.hidden = false;
   } else banner.hidden = true;
   $('syncNow').disabled = !!state.syncing;
@@ -493,11 +500,13 @@ function exportLog() {
 // ---------- Settings ----------
 async function loadSettings() {
   const { settings = {} } = await chrome.storage.local.get('settings');
-  const s = { pollMinutes: 5, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
+  const s = { pollMinutes: 5, overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
   $('sPoll').value = s.pollMinutes;
+  $('sOverlap').value = s.overlapHours;
   $('sWhEnabled').checked = s.webhookEnabled;
   $('sWhUrl').value = s.webhookUrl;
   $('sWhSecret').value = s.webhookSecret;
+  s.webhookFormat = ['full', 'chat', 'slack'].includes(s.webhookFormat) ? s.webhookFormat : 'full';
   $('sWhFormat').value = s.webhookFormat;
   $('sWhBackfill').checked = s.webhookIncludeBackfill;
   renderSample();
@@ -523,11 +532,12 @@ async function renderSettingsInfo() {
 
   const { state = {} } = await chrome.storage.local.get('state');
   const busy = !!state.syncing;
+  const backfill = state.backfill || {};
   $('sHistory').disabled = busy;
-  $('sHistory').textContent = state.historyNextPage > 1 && !state.historyDone ? `Resume import (page ${state.historyNextPage})` : 'Import older history';
+  $('sHistory').textContent = backfill.done === false ? `Continue backfill (page ${backfill.nextPage || 1})` : 'Fill older history';
   $('sHistoryInfo').textContent = state.syncing && state.syncMode === 'history' ? `Importing page ${state.syncPage}…`
-    : state.historyDone ? 'Full history imported.'
-    : state.historyNextPage > 1 ? `Stopped at page ${state.historyNextPage}.` : '';
+    : backfill.done ? 'Older history complete.'
+    : `Continues automatically · next page ${backfill.nextPage || 1}.`;
 }
 
 function msg(text, bad = false) { const m = $('sMsg'); m.textContent = text; m.style.color = bad ? 'var(--err)' : ''; }
@@ -546,6 +556,7 @@ async function saveSettings() {
   }
   const settings = {
     pollMinutes: Math.max(1, parseInt($('sPoll').value, 10) || 5),
+    overlapHours: Math.min(24, Math.max(0.5, parseFloat($('sOverlap').value) || 2)),
     webhookEnabled: enabled, webhookUrl: url, webhookSecret: $('sWhSecret').value,
     webhookFormat: $('sWhFormat').value, webhookIncludeBackfill: $('sWhBackfill').checked,
   };
@@ -600,7 +611,19 @@ $('sTest').onclick = async () => {
 };
 $('sRetry').onclick = async () => { await send({ type: 'flushOutbox' }); renderSettingsInfo(); };
 $('sClearOutbox').onclick = async () => { if (confirm('Discard all queued webhook deliveries?')) { await store.clear('outbox'); renderSettingsInfo(); } };
-$('sHistory').onclick = () => { send({ type: 'importHistory' }); setTimeout(renderSettingsInfo, 300); };
+$('sHistory').onclick = () => {
+  send({ type: 'importHistory' }).then((r) => {
+    if (r?.status === 'busy') msg('A run is already in progress.', true);
+    renderSettingsInfo();
+  });
+  setTimeout(renderSettingsInfo, 300);
+};
+$('sGapImport').onclick = () => {
+  send({ type: 'importHistory' }).then((r) => {
+    if (r?.status === 'busy') msg('A run is already in progress.', true);
+    renderSettingsInfo();
+  });
+};
 $('sHistoryReset').onclick = async () => { await send({ type: 'resetHistory' }); renderSettingsInfo(); };
 $('logFilter').onchange = renderLog;
 $('logExport').onclick = exportLog;
@@ -619,18 +642,21 @@ $('sGapAudit').onclick = async () => {
   const r = await send({ type: 'gapAudit' });
   btn.disabled = false;
   if (!r?.ok) { info.textContent = `Couldn’t check: ${r?.error || 'unknown error'}`; return; }
+  const scope = `${r.checked.toLocaleString()} alerts in ${r.pages} page${r.pages === 1 ? '' : 's'}${r.done ? '' : ' (stopped at the 50-page cap)'}`;
   if (!r.missingCount) {
-    info.textContent = `No gaps in the newest ${r.checked.toLocaleString()} alerts (${r.pages} page${r.pages === 1 ? '' : 's'}).`;
+    $('sGapImport').hidden = true;
+    info.textContent = `No gaps in the ${scope}.`;
     return;
   }
+  $('sGapImport').hidden = false;
   const newest = r.missing.slice(0, 3).map((m) => `${m.title} (${new Date(m.created_at * 1000).toLocaleString()})`).join('; ');
-  info.textContent = `${r.missingCount.toLocaleString()} alert${r.missingCount === 1 ? '' : 's'} on GridPane are not stored, newest: ${newest}. Run Import older history.`;
+  info.textContent = `${r.missingCount.toLocaleString()} alert${r.missingCount === 1 ? '' : 's'} on GridPane are not stored (${scope}), newest: ${newest}. Fill older history to collect them.`;
 };
 $('sWipe').onclick = async () => {
   if (!confirm('Delete every stored alert from this browser? GridPane itself is not affected.')) return;
   await store.clear('notifications'); await store.clear('outbox');
   const { state = {} } = await chrome.storage.local.get('state');
-  await chrome.storage.local.set({ state: { ...state, cursor: null, historyNextPage: 1, historyDone: false, unseen: 0 } });
+  await chrome.storage.local.set({ state: { ...state, cursor: null, backfill: { nextPage: 1, done: false }, unseen: 0 } });
   await load(); renderSettingsInfo();
 };
 
