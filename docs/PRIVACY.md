@@ -64,4 +64,4 @@ The use of information received from the extension adheres to the Chrome Web Sto
 
 Questions about this policy: {{CONTACT_EMAIL}}
 
-This policy is published at {{PRIVACY_URL}}.
+This policy is published at https://managingwp.io/policies/#gridpane-alerts-archive.

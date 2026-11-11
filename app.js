@@ -400,13 +400,15 @@ async function renderStatus() {
   const st = $('status');
   const banner = $('banner');
   const paused = state.status === 'rate_limited' && state.backoffUntil > Date.now();
-  st.classList.toggle('bad', state.status === 'signed_out' || state.status === 'error' || paused);
+  st.classList.toggle('bad', state.status === 'signed_out' || state.status === 'no_tab' || state.status === 'error' || paused);
   if (state.syncing) {
     st.textContent = state.syncMode === 'history' ? `Importing older history… page ${state.syncPage || 0}` : `Checking for new alerts… page ${state.syncPage || 1}`;
   } else if (paused) {
     st.textContent = `Rate limited · paused until ${new Date(state.backoffUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   } else if (state.status === 'signed_out') {
     st.textContent = 'Not signed in';
+  } else if (state.status === 'no_tab') {
+    st.textContent = 'GridPane tab not open';
   } else if (state.status === 'error') {
     st.textContent = 'Sync error';
   } else if (state.lastSync) {
@@ -415,7 +417,16 @@ async function renderStatus() {
     st.textContent = 'Not synced yet';
   }
 
-  if (state.status === 'signed_out' && !state.syncing) {
+  if (state.status === 'no_tab' && !state.syncing) {
+    const open = el('button', { className: 'btn ghost small', textContent: 'Open GridPane' });
+    open.addEventListener('click', async () => {
+      open.disabled = true;
+      await send({ type: 'openGridPane' });
+      renderStatus();
+    });
+    banner.replaceChildren('GridPane needs an open my.gridpane.com tab. ', open, ' then press Sync now.');
+    banner.hidden = false;
+  } else if (state.status === 'signed_out' && !state.syncing) {
     banner.replaceChildren('GridPane says this browser isn’t signed in. ',
       el('a', { href: 'https://my.gridpane.com/login', target: '_blank', textContent: 'Sign in to my.gridpane.com' }),
       ', keep a GridPane tab open, then press Sync now.');
@@ -434,8 +445,8 @@ async function renderStatus() {
 }
 
 // ---------- Sync log ----------
-const RESULT_LABEL = { ok: 'OK', rate_limited: 'Rate limited', signed_out: 'Signed out', error: 'Error' };
-const RESULT_CLASS = { ok: 'info', rate_limited: 'warning', signed_out: 'warning', error: 'error' };
+const RESULT_LABEL = { ok: 'OK', rate_limited: 'Rate limited', signed_out: 'Signed out', no_tab: 'No GridPane tab', error: 'Error' };
+const RESULT_CLASS = { ok: 'info', rate_limited: 'warning', signed_out: 'warning', no_tab: 'warning', error: 'error' };
 const dur = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} m ${Math.round((ms % 60000) / 1000)} s`);
 const clock = (unix) => (unix ? new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–');
 const cursorText = (e) => `${clock(e.cursorFrom?.created_at)} → ${clock(e.cursorTo?.created_at)}`;

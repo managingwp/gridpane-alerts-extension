@@ -1,0 +1,7 @@
+# Verified false positives, approved by the maintainer on 2026-11-11.
+#
+# Both hits are in vendored third-party documentation (GoogleChrome/modern-web-guidance,
+# tracked under .agents/skills). The generic-api-key rule matches an 8-character
+# SubtleCrypto algorithm-name string inside a code example — no credential is present.
+.agents/skills/modern-web-guidance/guides/security/client-side-encryption.md:generic-api-key:187
+.agents/skills/modern-web-guidance/guides/security/client-side-encryption.md:generic-api-key:201

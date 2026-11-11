@@ -1,8 +1,10 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
 import { pageOldest, shouldStop, nextCursor, missingIds } from './lib/scan.js';
+import { pickGridPaneTab } from './lib/tabs.js';
 
 const BASE = 'https://my.gridpane.com';
+const GRIDPANE_ROOT = BASE + '/';
 const ALARM = 'gp-sync';
 const LOOKUP_TTL = 24 * 3600 * 1000;   // server/site names: once a day
 const UNKNOWN_LOOKUP_MIN_GAP = 3600 * 1000; // ...or sooner (max hourly) when an alert mentions an unknown one
@@ -41,6 +43,7 @@ async function setState(patch) {
 // ---------- GridPane fetching ----------
 
 class SignedOutError extends Error {}
+class NoTabError extends Error {}
 class RateLimitError extends Error {
   constructor(retryAfterSec) { super('GridPane rate limit (HTTP 429)'); this.retryAfterSec = retryAfterSec; }
 }
@@ -71,12 +74,27 @@ async function fetchDirect(path) {
   return parseResponse({ status: r.status, ct: r.headers.get('content-type'), url: r.url, body: await r.text(), retryAfter: r.headers.get('retry-after') });
 }
 
+// Chrome withholds GridPane's session cookie from the extension's own fetch, so a
+// GridPane read has to run inside an open panel tab. Find that tab up front and
+// report a missing one as its own state; "Not signed in" sends the user to the
+// login page when the real fix is to open the panel.
+async function gridPaneTab() {
+  const tabs = await chrome.tabs.query({ url: BASE + '/*' });
+  return pickGridPaneTab(tabs);
+}
+
+async function requireGridPaneTab() {
+  const tab = await gridPaneTab();
+  if (!tab) throw new NoTabError(`Open ${GRIDPANE_ROOT} in a tab to let the extension read GridPane alerts`);
+  return tab;
+}
+
 // Fallback: run the request inside an open GridPane tab, exactly as the panel does.
 async function fetchViaTab(path) {
-  const tabs = await chrome.tabs.query({ url: BASE + '/*' });
-  if (!tabs.length) throw new SignedOutError('Open my.gridpane.com in a tab and sign in');
+  const tab = await gridPaneTab();
+  if (!tab) throw new NoTabError(`Open ${GRIDPANE_ROOT} in a tab to let the extension read GridPane alerts`);
   const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: tabs[0].id },
+    target: { tabId: tab.id },
     world: 'MAIN',
     args: [path, GP_HEADERS],
     func: async (p, headers) => {
@@ -158,14 +176,18 @@ async function storeNew(recs, { sendToWebhook }) {
 // ---------- Runs (sync / history import), logging, rate limiting ----------
 
 let running = null;
-function startRun(kind, fn) {
+const GRIDPANE_READ_KINDS = new Set(['sync', 'history']);
+function startRun(kind, fn, trigger = 'auto') {
   if (running) return running;
   running = (async () => {
     const before = await getState();
-    run = { kind, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
-    await setState({ syncing: true, syncMode: kind, syncPage: 0 });
+    run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
     let result;
     try {
+      // Refuse before the first request: without a panel tab every read would
+      // fail deep inside the walk and be reported as a sign-out.
+      if (GRIDPANE_READ_KINDS.has(kind)) await requireGridPaneTab();
+      await setState({ syncing: true, syncMode: kind, syncPage: 0 });
       const extra = await fn(run);
       await setState({ status: 'ok', lastError: null, rateLimitStreak: 0, backoffUntil: 0, ...(extra || {}) });
       result = { ok: true, status: 'ok' };
@@ -181,16 +203,22 @@ function startRun(kind, fn) {
       error: result.error || null, notes: run.notes.join(' · '),
       cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
     };
-    await store.addLog(entry);
-    try {
-      const debug = (await store.kvGet('syncDebug')) || [];
-      debug.push({
-        started: entry.started, kind, trigger: entry.trigger, status: entry.status,
-        cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
-        pages: run.pageDetail,
-      });
-      await store.kvSet('syncDebug', debug.slice(-20));
-    } catch {}
+    // An automatic alarm in the no-tab state would add 288 rows a day at the
+    // 5-minute default and push real runs out of the 1,000-entry log. A manual
+    // attempt still records one row, so the click is auditable.
+    const quiet = result.status === 'no_tab' && run.trigger !== 'manual';
+    if (!quiet) {
+      await store.addLog(entry);
+      try {
+        const debug = (await store.kvGet('syncDebug')) || [];
+        debug.push({
+          started: entry.started, kind, trigger: entry.trigger, status: entry.status,
+          cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
+          pages: run.pageDetail,
+        });
+        await store.kvSet('syncDebug', debug.slice(-20));
+      } catch {}
+    }
     const state = await getState();
     await setState({
       syncing: false, lastSync: result.ok ? Date.now() : state.lastSync, lastAttempt: Date.now(),
@@ -218,6 +246,10 @@ async function handleRunError(e) {
   if (e instanceof SignedOutError) {
     await setState({ status: 'signed_out', lastError: msg });
     return { ok: false, status: 'signed_out', error: msg };
+  }
+  if (e instanceof NoTabError) {
+    await setState({ status: 'no_tab', lastError: msg });
+    return { ok: false, status: 'no_tab', error: msg };
   }
   await setState({ status: 'error', lastError: msg });
   return { ok: false, status: 'error', error: msg };
@@ -329,7 +361,7 @@ async function sync(trigger = 'auto') {
   // While a gap is waiting for the history import, automatic checks only take
   // page 1 so new alerts still arrive; a manual sync attempts the full walk.
   const shallow = trigger === 'auto' && !!state.syncGap;
-  const p = startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { shallow }); });
+  const p = startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { shallow }); }, trigger);
   return p;
 }
 
@@ -430,7 +462,7 @@ async function testWebhook() {
 
 async function updateBadge() {
   const s = await getState();
-  if (s.status === 'signed_out' || s.status === 'error' || s.status === 'rate_limited') {
+  if (s.status === 'signed_out' || s.status === 'no_tab' || s.status === 'error' || s.status === 'rate_limited') {
     await chrome.action.setBadgeBackgroundColor({ color: '#d97706' });
     await chrome.action.setBadgeText({ text: s.status === 'rate_limited' ? '⏸' : '!' });
     await chrome.action.setTitle({ title: `GridPane Alerts — ${s.lastError || 'sync problem'}` });
@@ -455,15 +487,36 @@ chrome.runtime.onStartup.addListener(scheduleAlarm);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) sync('auto'); });
 chrome.action.onClicked.addListener(() => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }));
 
+// One click from the archive page: focus the panel tab already open, or open it.
+async function openGridPane() {
+  const tab = await gridPaneTab();
+  if (tab) {
+    await chrome.tabs.update(tab.id, { active: true });
+    if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+    return { ok: true, opened: 'focused' };
+  }
+  await chrome.tabs.create({ url: GRIDPANE_ROOT });
+  return { ok: true, opened: 'created' };
+}
+
+// The manual actions below bypass startRun, so they run the same preflight and
+// answer in the shape the archive page already understands.
+async function requireTabOrReply(idle) {
+  try { await requireGridPaneTab(); }
+  catch (e) { return { ok: false, status: 'no_tab', error: String(e.message || e) }; }
+  return idle();
+}
+
 const handlers = {
   sync: () => sync('manual'),
-  importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return importHistory(r); }),
+  importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return importHistory(r); }, 'manual'),
   resetHistory: async () => { await setState({ historyNextPage: 1, historyDone: false }); return { ok: true }; },
   settingsChanged: async () => { await scheduleAlarm(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
   flushOutbox: async () => ({ ok: true, ...(await flushOutbox(true)) }),
-  gapAudit: () => gapAudit(),
-  refreshLookups: async () => { await refreshLookups(true); return { ok: true }; },
+  gapAudit: () => requireTabOrReply(() => gapAudit()),
+  refreshLookups: () => requireTabOrReply(async () => { await refreshLookups(true); return { ok: true }; }),
+  openGridPane: () => openGridPane(),
   seen: async () => { await setState({ unseen: 0 }); await updateBadge(); return { ok: true }; },
 };
 

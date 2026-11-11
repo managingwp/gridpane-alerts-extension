@@ -4,7 +4,7 @@
   "singlePurpose": "Keeps a searchable local archive of the alerts in the user's GridPane notification centre, and can forward each new alert to a webhook the user configures.",
   "category": "Developer Tools",
   "language": "en",
-  "privacyPolicyUrl": "https://managingwp.io/gridpane-alerts/privacy",
+  "privacyPolicyUrl": "https://managingwp.io/policies/#gridpane-alerts-archive",
   "supportUrl": "https://github.com/managingwp/gridpane-alerts-extension/issues",
   "homepageUrl": "https://github.com/managingwp/gridpane-alerts-extension",
   "disclaimer": "Unofficial extension. Not affiliated with, endorsed by, or supported by GridPane.",
@@ -36,5 +36,5 @@
     "limitedUse": true
   },
   "remoteCode": "No. All code is packaged in the extension; nothing is fetched or evaluated at runtime.",
-  "testInstructions": "The extension archives the alerts already visible in a signed-in GridPane account. Sign in to https://my.gridpane.com with the test account provided, click the extension icon, and the archive page opens and starts its first sync. If test credentials are not available, the whole interface can still be reviewed from an empty archive: click the icon to open the page, use the Settings tab to set a check interval and to enter a webhook URL (Chrome asks for permission for that one host; the Save button is the only place that asks), and use the Sync log tab to see the recorded runs. Search, filters, column toggles and CSV/JSON export are all reachable with an empty archive."
+  "testInstructions": "The extension archives the alerts already visible in a signed-in GridPane account. Sign in to https://my.gridpane.com with the test account provided and keep that my.gridpane.com tab open: the extension reads the bell inside that tab, and with the tab closed it stops before making any request and shows an Open GridPane button instead. If test credentials are not available, the whole interface can still be reviewed from an empty archive: click the icon to open the page, use the Settings tab to set a check interval and to enter a webhook URL (Chrome asks for permission for that one host; the Save button is the only place that asks), and use the Sync log tab to see the recorded runs. Search, filters, column toggles and CSV/JSON export are all reachable with an empty archive."
 }

@@ -46,3 +46,17 @@ Baseline: 2026-11-06
 - 2026-11-07T14:20:40Z | phase 5 | pass | 3c17533 | `test "$(grep -c 'chrome://extensions' README.md)" -ge 1`
 - 2026-11-07T14:20:40Z | phase 5 | pass | 3c17533 | `test "$(grep -c 'Load unpacked' README.md)" -ge 1`
 - 2026-11-07T14:20:40Z | phase 5 | pass | 3c17533 | `test "$(grep -c 'gh release create' .github/workflows/release.yml)" -ge 1`
+
+## 20261107-require-gridpane-tab
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `node --test` | # duration_ms 234.333485
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `node scripts/package.mjs --check` | Store listing: 7 justification(s) match the manifest
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c "from './lib/tabs.js'" background.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'NoTabError' background.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'no_tab' background.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'openGridPane' background.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'pickGridPaneTab' background.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'lib/tabs.js' scripts/package.mjs)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'no_tab' app.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'Open GridPane' app.js)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `test "$(grep -c 'my.gridpane.com tab' README.md)" -ge 1`
+- 2026-11-11T13:10:21Z | phase 4 | pass | e4e3721 | `python3 -c "import json,sys; m=json.load(open('manifest.json')); sys.exit(0 if 'tabs' not in m.get('permissions',[]) else 1)"`
