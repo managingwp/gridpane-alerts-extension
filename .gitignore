@@ -5,3 +5,4 @@ node_modules/
 dist/
 plans/.pgf.lock
 plans/.pgf.release.lock
+/plans

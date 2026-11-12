@@ -56,12 +56,16 @@ node scripts/package.mjs --check  # validate only, write nothing
 To release, bump `version` in `manifest.json`, commit, then tag and push:
 
 ```bash
-git tag v1.5.0
-git push origin v1.5.0
+git tag v1.6.0
+git push origin v1.6.0
 ```
 
 The `release` workflow runs the tests and validation again, refuses a tag that does not match the manifest version, and attaches the zip to the GitHub Release.
 
 See [Development](https://managingwp.github.io/gridpane-alerts-extension/contributing/development) and [Release](https://managingwp.github.io/gridpane-alerts-extension/contributing/release). The docs site's own rules are in [The docs site](https://managingwp.github.io/gridpane-alerts-extension/contributing/docs-site).
+
+## License
+
+The extension's own code is MIT — see [LICENSE](./LICENSE). The vendored agent skills under `.agents/` are Apache-2.0 from GoogleChrome/modern-web-guidance; see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) and [LICENSES/Apache-2.0.txt](./LICENSES/Apache-2.0.txt).
 
 This is an unofficial extension. GridPane does not publish or support it.

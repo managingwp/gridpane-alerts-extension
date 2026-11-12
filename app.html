@@ -157,6 +157,16 @@
         </details>
       </div>
 
+      <div class="card">
+        <h2>Sample data</h2>
+        <p class="muted">Load a set of fictional alerts to try the archive, the Sync log and the webhook preview without a GridPane account. Loading replaces this profile’s alerts, Sync log and webhook settings and pauses automatic sync; remove the sample data to restore the webhook settings and resume sync. GridPane is not affected.</p>
+        <div class="actions">
+          <button id="sDemoLoad" class="btn ghost">Load sample data</button>
+          <button id="sDemoRemove" class="btn ghost" hidden>Remove sample data</button>
+          <span id="sDemoInfo" class="muted"></span>
+        </div>
+      </div>
+
       <div class="card danger">
         <h2>Data</h2>
         <p class="muted">Everything is stored locally in this browser profile (IndexedDB). Uninstalling the extension deletes it, so export first if you want a copy.</p>

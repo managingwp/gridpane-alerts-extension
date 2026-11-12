@@ -5,7 +5,7 @@ description: Sourced comparison of the places a durable alert copy could live, t
 
 **Status:** Draft for decision (2026-11-11)
 **Scope:** Where the GridPane Alerts Archive could keep a durable, machine-readable copy outside the Chrome profile. This record recommends an option; it does not implement one.
-**Related:** `README.md` (Limits, Webhook), `docs/PRIVACY.md`, `plans/20261110-google-sheets-destination.md` (abandoned design), `plans/implemented/20261111-storage-destinations.md` (this investigation).
+**Related:** `README.md` (Limits, Webhook), `docs/PRIVACY.md`, and this site's [history page](../history/google-sheets-destination.md) for the abandoned design.
 
 ## Problem and constraints
 
@@ -77,14 +77,14 @@ The extension creates one Notion page per alert through the Notion API, with pro
 
 ### E. Google Sheets
 
-The abandoned `20261110-google-sheets-destination` plan proposed creating a spreadsheet in the user's Drive and appending one row per alert through the Sheets API, using `chrome.identity.getAuthToken` and the `drive.file` scope.
+The abandoned design proposed creating a spreadsheet in the user's Drive and appending one row per alert through the Sheets API, using `chrome.identity.getAuthToken` and the `drive.file` scope.
 
-- **Setup:** Google Cloud project, Sheets API, OAuth consent screen, Chrome-extension OAuth client, `identity` permission and an `oauth2` block. The abandoned plan treated the client id as human setup.
+- **Setup:** Google Cloud project, Sheets API, OAuth consent screen, Chrome-extension OAuth client, `identity` permission and an `oauth2` block. The abandoned design treated the client id as human setup.
 - **Cost:** the Sheets API is free for standard use; Google says exceeding quota limits is planned to incur charges later in 2026. Source: [Sheets API limits](https://developers.google.com/sheets/api/limits).
 - **Limits:** 300 read requests/minute/project and 60/minute/user; 300 write requests/minute/project and 60/minute/user; 2 MB recommended payload; 180-second request timeout.
 - **Read path:** good for people and Claude's Google Sheets connector; row-oriented, not a document store.
-- **Store review:** `identity` plus an OAuth scope is a material review change; the abandoned plan carried that cost.
-- **Failure/dedupe:** an append is not idempotent. The abandoned plan needed a `sheetsent` marker plus a reconcile read to avoid duplicates.
+- **Store review:** `identity` plus an OAuth scope is a material review change; the abandoned design carried that cost.
+- **Failure/dedupe:** an append is not idempotent. The abandoned design needed a `sheetsent` marker plus a reconcile read to avoid duplicates.
 - **Why it was abandoned:** the OAuth client and consent setup, the `identity` permission, the store-review change and the duplicate guard were a high price for a row store. This record keeps it as an option but does not revive it silently.
 
 ### F. Existing webhook into a user-owned tool
@@ -135,11 +135,11 @@ The answer changes if:
 - **You will not run a Cloudflare account:** choose Notion, or F if you already run a tool with an API.
 - **You need the smallest possible change:** F, the existing webhook, is already shipped.
 - **You need the copy to be local only:** A is sufficient, and G already covers the manual case.
-- **You want Google Sheets specifically:** E is possible, but budget for the OAuth client, `identity` permission and duplicate guard that the abandoned plan documented.
+- **You want Google Sheets specifically:** E is possible, but budget for the OAuth client, `identity` permission and duplicate guard that the abandoned design documented.
 
 ## Implementation sketch (Cloudflare Worker + D1)
 
-This is the shape of the follow-up plan, not an implementation. No account, token or permission is created here.
+This is the shape of the follow-up work, not an implementation. No account, token or permission is created here.
 
 **Extension side**
 
@@ -183,28 +183,28 @@ CREATE INDEX alerts_severity ON alerts (severity);
 - The Worker keeps the data until the user deletes rows or the database. Document that uninstalling the extension does not delete the remote copy.
 - Add the new destination to the store's test instructions and the README, and add the Worker URL host to the optional-permission explanation.
 
-**Effort:** medium — settings and outbox destination, Worker and schema, read endpoint, documentation and store text. It should be its own PGF with phases for the pure model/tests, the Worker, the extension delivery path, and docs.
+**Effort:** medium — settings and outbox destination, Worker and schema, read endpoint, documentation and store text. It should be its own implementation effort with phases for the pure model/tests, the Worker, the extension delivery path, and docs.
 
 ## Decision gate
 
-**Question:** Which drafted plan should be unheld and executed?
+**Question:** Which destination should be implemented?
 
-**Recommended answer:** Cloudflare Worker + D1 (`plans/20261111-cloudflare-d1-destination.md`), with Notion as the fallback (`plans/20261111-notion-destination.md`).
+**Recommended answer:** Cloudflare Worker + D1, with Notion as the fallback.
 
-**Drafted option plans (2026-11-11):** all four are parked **⏸ On Hold**; they are alternatives, not a queue. Unhold one and execute it; the others stay parked or are abandoned.
+**Drafted options (2026-11-11):** all four are on hold; they are alternatives, not a queue. Choose one; the others stay parked or are abandoned.
 
-| Option | Drafted follow-up PGF |
+| Option | Status |
 |---|---|
-| B. Cloudflare Worker + D1 | `plans/20261111-cloudflare-d1-destination.md` |
-| D. Notion database | `plans/20261111-notion-destination.md` |
-| E. Google Sheets | `plans/20261111-google-sheets-destination.md` |
-| A. Local folder snapshot | `plans/20261111-local-export-destination.md` |
+| B. Cloudflare Worker + D1 | On hold |
+| D. Notion database | On hold |
+| E. Google Sheets | On hold |
+| A. Local folder snapshot | On hold |
 
-F (existing webhook) needs no new PGF because it already ships; G (no change) needs none by definition.
+F (existing webhook) needs no new work because it already ships; G (no change) needs none by definition.
 
 **Deferred until you choose:** creating a Cloudflare account, database or Worker; creating a Notion integration or database; creating a Google Cloud OAuth client; adding any extension permission; writing runtime code; changing the privacy policy or store listing.
 
-**Follow-up PGF:** each drafted plan is the ready-to-implement prompt for its option. The D1 plan records the Worker/secret human setup, the 100-alert batching, the idempotent insert and the read endpoint; the Notion and Sheets plans record their integration setup and duplicate guards; the local plan records the folder handle. Do not implement any of them until you unhold one.
+**Follow-up work:** each drafted option has its own implementation brief. D1 records the Worker/secret human setup, the 100-alert batching, the idempotent insert and the read endpoint; Notion and Sheets record their integration setup and duplicate guards; the local option records the folder handle. Do not implement any of them until one is chosen.
 
 ## Sources
 
@@ -219,4 +219,4 @@ All sources accessed 2026-11-11.
 - Google Sheets API limits and quotas — https://developers.google.com/sheets/api/limits
 - MDN File System API — https://developer.mozilla.org/en-US/docs/Web/API/File_System_API
 - Chrome `downloads` API — https://developer.chrome.com/docs/extensions/reference/api/downloads
-- Abandoned Google Sheets design — `plans/20261110-google-sheets-destination.md`
+- Abandoned Google Sheets design — [history page](../history/google-sheets-destination.md)

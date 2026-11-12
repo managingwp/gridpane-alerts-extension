@@ -1,28 +1,28 @@
 ---
 title: Roadmap
-description: Planned, possible and abandoned work, each labelled with its status and tied to the plan file that owns it.
+description: Planned, possible and abandoned work, each labelled with its current status.
 ---
 
 :::info
-Statuses below are as of 2026-11-11. The plan file is the source of truth: `pgf list` in the repository shows the live state. Nothing on this page is a release date or a promise.
+Statuses below are a snapshot taken on 2026-11-11. Nothing on this page is a release date or a promise.
 :::
 
 ## Planned
 
-Work with a written plan that has not shipped yet.
+Work that has a written design and has not shipped yet.
 
-| Item | Plan | What it covers |
+| Item | Status | What it covers |
 |---|---|---|
-| Cloudflare Worker + D1 | [`plans/20261111-cloudflare-d1-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-cloudflare-d1-destination.md) — ⏸ On Hold | The [decision record](./storage-decisions.md)'s recommended destination: batched outbox delivery, idempotent ingest, a read endpoint. |
-| Notion database | [`plans/20261111-notion-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-notion-destination.md) — ⏸ On Hold | The runner-up: one page per alert through the Notion API. |
-| Local folder snapshot | [`plans/20261111-local-export-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-local-export-destination.md) — ⏸ On Hold | A scheduled JSON/NDJSON copy on disk, no server. |
-| Google Sheets | [`plans/20261111-google-sheets-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-google-sheets-destination.md) — ⏸ On Hold | The revived Sheets option, with its OAuth cost recorded. |
+| Cloudflare Worker + D1 | On hold | The [decision record](./storage-decisions.md)'s recommended destination: batched outbox delivery, idempotent ingest, a read endpoint. |
+| Notion database | On hold | The runner-up: one page per alert through the Notion API. |
+| Local folder snapshot | On hold | A scheduled JSON/NDJSON copy on disk, no server. |
+| Google Sheets | On hold | The revived Sheets option, with its OAuth cost recorded. |
 
-These are alternatives, not a queue. The record's [decision gate](./storage-decisions.md#decision-gate) says to unhold one and execute it; the others stay parked or are abandoned.
+These are alternatives, not a queue. The record's [decision gate](./storage-decisions.md#decision-gate) says to choose one; the others stay parked or are abandoned.
 
 ## Possible
 
-Options that are understood but have no approved plan.
+Options that are understood but have no approved design.
 
 - **Cloudflare Worker + MCP read access.** A Worker receives the existing webhook, verifies the HMAC, stores alerts in D1 (or R2) and exposes an MCP server so Claude can query the archive. This is the recommended direction in the [decision record](./storage-decisions.md) extended with a read protocol; no Worker exists yet. See [Collection and storage](./collection-and-storage.md#cloudflare-worker--mcp-possible).
 - **Scheduled local export.** The archive page writes a JSON or NDJSON snapshot to a chosen folder or the Downloads folder, so a local script has a fresh copy without a server.

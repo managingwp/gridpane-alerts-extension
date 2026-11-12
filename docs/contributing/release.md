@@ -9,8 +9,8 @@ description: Bump the manifest version, tag, and let the release workflow test, 
 2. Tag and push:
 
    ```bash
-   git tag v1.5.0
-   git push origin v1.5.0
+   git tag v1.6.0
+   git push origin v1.6.0
    ```
 
 The `release` workflow runs the tests and the validation again, refuses a tag that does not match the manifest version, and attaches `gridpane-alerts-<version>.zip` to the GitHub Release. That same zip is what the Chrome Web Store dashboard accepts, and what a manual install unpacks.

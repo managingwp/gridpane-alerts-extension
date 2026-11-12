@@ -520,8 +520,11 @@ function renderSample() {
 }
 
 async function renderSettingsInfo() {
-  const [n, outbox, lookups] = await Promise.all([store.count('notifications'), store.getAll('outbox'), store.kvGet('lookups')]);
+  const [n, outbox, lookups, stored] = await Promise.all([
+    store.count('notifications'), store.getAll('outbox'), store.kvGet('lookups'), chrome.storage.local.get('demoMode'),
+  ]);
   const ls = lookups || { servers: {}, sites: {} };
+  const demo = stored?.demoMode?.active ? stored.demoMode : null;
   $('sDataInfo').textContent = `${n.toLocaleString()} alerts stored · names known for ${Object.keys(ls.servers).length} servers and ${Object.keys(ls.sites).length} sites` +
     (ls.updated_at ? ` (updated ${ago(ls.updated_at)})` : '');
   const failing = outbox.filter((o) => o.attempts > 0);
@@ -532,6 +535,12 @@ async function renderSettingsInfo() {
 
   const { state = {} } = await chrome.storage.local.get('state');
   const busy = !!state.syncing;
+  $('sDemoLoad').hidden = !!demo;
+  $('sDemoRemove').hidden = !demo;
+  $('sDemoLoad').disabled = busy;
+  $('sDemoInfo').textContent = demo
+    ? `Sample data loaded · ${(demo.alerts || n).toLocaleString()} alerts · automatic sync paused.`
+    : 'No sample data loaded.';
   const backfill = state.backfill || {};
   $('sHistory').disabled = busy;
   $('sHistory').textContent = backfill.done === false ? `Continue backfill (page ${backfill.nextPage || 1})` : 'Fill older history';
@@ -609,6 +618,30 @@ $('sTest').onclick = async () => {
   const r = await send({ type: 'testWebhook' });
   r?.ok ? msg(`Test delivered (HTTP ${r.status}).`) : msg(`Test failed: ${r?.error || 'unknown error'}. Save settings first if you changed the URL.`, true);
 };
+$('sDemoLoad').onclick = async () => {
+  if (!confirm('Replace this profile’s stored alerts, Sync log and webhook settings with sample data? Real alerts are deleted and cannot be restored. GridPane is not affected.')) return;
+  $('sDemoLoad').disabled = true;
+  const r = await send({ type: 'loadDemo' });
+  if (!r?.ok) {
+    $('sDemoLoad').disabled = false;
+    msg(r?.status === 'busy' ? 'A sync is running. Try again when it finishes.' : `Couldn’t load sample data: ${r?.error || 'unknown error'}`, true);
+    return;
+  }
+  msg(`Loaded ${r.count} sample alerts.`);
+  await load(); await loadSettings(); await renderSettingsInfo(); await renderStatus();
+};
+$('sDemoRemove').onclick = async () => {
+  if (!confirm('Remove the sample alerts, Sync log and lookups, and restore the webhook settings from before they were loaded?')) return;
+  $('sDemoRemove').disabled = true;
+  const r = await send({ type: 'exitDemo' });
+  if (!r?.ok) {
+    $('sDemoRemove').disabled = false;
+    msg(r?.status === 'busy' ? 'A sync is running. Try again when it finishes.' : `Couldn’t remove sample data: ${r?.error || 'unknown error'}`, true);
+    return;
+  }
+  msg('Sample data removed.');
+  await load(); await loadSettings(); await renderSettingsInfo(); await renderStatus();
+};
 $('sRetry').onclick = async () => { await send({ type: 'flushOutbox' }); renderSettingsInfo(); };
 $('sClearOutbox').onclick = async () => { if (confirm('Discard all queued webhook deliveries?')) { await store.clear('outbox'); renderSettingsInfo(); } };
 $('sHistory').onclick = () => {
@@ -654,10 +687,12 @@ $('sGapAudit').onclick = async () => {
 };
 $('sWipe').onclick = async () => {
   if (!confirm('Delete every stored alert from this browser? GridPane itself is not affected.')) return;
+  const { demoMode } = await chrome.storage.local.get('demoMode');
+  if (demoMode?.active) await send({ type: 'exitDemo' });
   await store.clear('notifications'); await store.clear('outbox');
   const { state = {} } = await chrome.storage.local.get('state');
   await chrome.storage.local.set({ state: { ...state, cursor: null, backfill: { nextPage: 1, done: false }, unseen: 0 } });
-  await load(); renderSettingsInfo();
+  await load(); await loadSettings(); renderSettingsInfo();
 };
 
 // Refresh when the background sync finishes.

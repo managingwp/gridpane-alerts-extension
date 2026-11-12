@@ -10,7 +10,7 @@ This page is a reference map, not a decision. It separates what ships now from w
 | Status | Meaning |
 |---|---|
 | **Implemented** | Ships in the current extension and works today. |
-| **Planned** | Has a written plan; not built. The plan file is the source of truth. |
+| **Planned** | Has a written design; not built. |
 | **Possible** | Understood and sketched, but no approved plan and no code. |
 | **Abandoned** | Designed and dropped; kept here so the reason is not lost. |
 
@@ -35,14 +35,14 @@ Two paths already take a copy out of the browser:
 
 ### Planned
 
-Four destination plans are drafted and parked **⏸ On Hold**. They are alternatives, not a queue: pick one before executing any of them.
+Four destination options are drafted and on hold. They are alternatives, not a queue: choose one before it is implemented.
 
-| Plan | Option | Collection effect |
+| Option | Status | Collection effect |
 |---|---|---|
-| [`plans/20261111-cloudflare-d1-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-cloudflare-d1-destination.md) | Cloudflare Worker + D1 (recommended) | None — ingests pushed alerts |
-| [`plans/20261111-notion-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-notion-destination.md) | Notion database (runner-up) | None — ingests pushed alerts |
-| [`plans/20261111-local-export-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-local-export-destination.md) | Local folder snapshot | None — reads the existing archive |
-| [`plans/20261111-google-sheets-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261111-google-sheets-destination.md) | Google Sheets (revived) | None — ingests pushed alerts |
+| Cloudflare Worker + D1 (recommended) | On hold | None — ingests pushed alerts |
+| Notion database (runner-up) | On hold | None — ingests pushed alerts |
+| Local folder snapshot | On hold | None — reads the existing archive |
+| Google Sheets (revived) | On hold | None — ingests pushed alerts |
 
 Collection changes already shipped — the configurable overlap, the tab-load retry and the Slack payload — are on [Features](./features.md).
 
@@ -114,7 +114,7 @@ The abandoned plan proposed an extension-created spreadsheet with one row per al
 
 It was dropped before implementation on 2026-11-11. The setup was the blocker: a Google Cloud project, the Sheets API, an External consent screen, a Chrome-extension OAuth client bound to the extension id, and the public client id committed in `manifest.json` — a hard prerequisite the executor could not invent. On top of that came the `identity` permission and an OAuth scope in the store review, a per-destination outbox with 401/429 handling, and a marker-plus-reconcile guard because appending a row is not idempotent. That is a large price for a row store.
 
-The full design and the revival checklist are in [the history page](../history/google-sheets-destination.md); the plan itself is [`plans/20261110-google-sheets-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261110-google-sheets-destination.md).
+The full design and the revival checklist are in [the history page](../history/google-sheets-destination.md).
 
 ### Choosing
 
@@ -125,7 +125,7 @@ The [decision record](./storage-decisions.md#recommendation) recommends the Clou
 - **The existing webhook** if you already run a tool with an API — it is already shipped.
 - **No change** if a manual export is enough; nothing is lost, but nothing outlives the profile.
 
-The decision itself is still open: the record lists the drafted follow-up plans, and they are parked until one is chosen. The choice is also tracked in `plans/todos.md`.
+The decision itself is still open: the record lists the drafted options, and they are parked until one is chosen.
 
 ## Sources
 

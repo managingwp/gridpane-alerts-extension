@@ -1,5 +1,6 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
+import { buildDemo } from './demo.js';
 import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
 
@@ -41,6 +42,13 @@ async function getState() {
 async function setState(patch) {
   const state = await getState();
   await chrome.storage.local.set({ state: { ...state, ...patch } });
+}
+
+// Sample data sets `demoMode` so no GridPane read can replace it. The record
+// also carries the settings snapshot restored when the sample is removed.
+async function demoState() {
+  const { demoMode } = await chrome.storage.local.get('demoMode');
+  return demoMode?.active ? demoMode : null;
 }
 
 // ---------- GridPane fetching ----------
@@ -191,6 +199,11 @@ const GRIDPANE_READ_KINDS = new Set(['sync', 'history']);
 function startRun(kind, fn, trigger = 'auto') {
   if (running) return { ok: false, status: 'busy', error: 'A run is already in progress' };
   running = (async () => {
+    // Sample data is a stable, fictional archive: a GridPane read would replace
+    // or empty it, so refuse before the tab preflight or any counter exists.
+    if (GRIDPANE_READ_KINDS.has(kind) && await demoState()) {
+      return { ok: false, status: 'demo', error: 'Sample data is loaded' };
+    }
     const before = await getState();
     run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
     let result;
@@ -570,6 +583,56 @@ async function requireTabOrReply(idle) {
   return idle();
 }
 
+// ---------- Sample data ----------
+// `buildDemo` returns every shape the sync writes, so loading is a clear and
+// copy; removing restores the webhook settings captured at load time.
+async function loadDemo() {
+  if (running) return { ok: false, status: 'busy', error: 'A run is already in progress' };
+  // A second tab can still show the Load button after the first load. Keep the
+  // settings snapshot from the first load instead of snapshotting demo values.
+  const prior = await demoState();
+  const previousSettings = prior?.previousSettings || await getSettings();
+  const demo = buildDemo(Date.now());
+  await store.clear('notifications');
+  await store.clear('outbox');
+  await store.clear('synclog');
+  await store.del('kv', 'lookups');
+  await store.del('kv', 'syncDebug');
+  await store.putMany('notifications', demo.notifications);
+  await store.putMany('synclog', demo.synclog);
+  await store.kvSet('lookups', demo.lookups);
+  await chrome.storage.local.set({
+    settings: demo.settings,
+    demoMode: { active: true, seededAt: Date.now(), alerts: demo.notifications.length, previousSettings },
+    state: demo.state,
+  });
+  await chrome.alarms.clear(ALARM);
+  await updateBadge();
+  return { ok: true, count: demo.notifications.length };
+}
+
+async function exitDemo() {
+  const demo = await demoState();
+  if (!demo) return { ok: true, removed: false };
+  if (running) return { ok: false, status: 'busy', error: 'A run is already in progress' };
+  await store.clear('notifications');
+  await store.clear('outbox');
+  await store.clear('synclog');
+  await store.del('kv', 'lookups');
+  await store.del('kv', 'syncDebug');
+  await chrome.storage.local.set({ settings: { ...DEFAULTS, ...(demo.previousSettings || {}) } });
+  await setState({
+    status: 'ok', lastError: null, lastSync: null, lastAttempt: null,
+    cursor: null, backfill: { nextPage: 1, done: false }, unseen: 0,
+    syncGap: false, syncing: false, syncMode: null, syncPage: 0,
+    rateLimitStreak: 0, backoffUntil: 0,
+  });
+  await chrome.storage.local.remove('demoMode');
+  await scheduleAlarm();
+  await updateBadge();
+  return { ok: true, removed: true };
+}
+
 const handlers = {
   sync: () => sync('manual'),
   importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return syncNew(r, { batch: MANUAL_BACKFILL_PAGES }); }, 'manual'),
@@ -580,7 +643,12 @@ const handlers = {
   gapAudit: () => requireTabOrReply(() => gapAudit()),
   refreshLookups: () => requireTabOrReply(async () => { await refreshLookups(true); return { ok: true }; }),
   openGridPane: () => openGridPane(),
-  seen: async () => { await setState({ unseen: 0 }); await updateBadge(); return { ok: true }; },
+  loadDemo: () => loadDemo(),
+  exitDemo: () => exitDemo(),
+  seen: async () => {
+    if (await demoState()) return { ok: true, demo: true };
+    await setState({ unseen: 0 }); await updateBadge(); return { ok: true };
+  },
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

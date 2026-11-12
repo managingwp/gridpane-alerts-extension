@@ -27,6 +27,7 @@ export const RUNTIME_FILES = [
   'background.js',
   'db.js',
   'normalize.js',
+  'demo.js',
   'lib/scan.js',
   'lib/tabs.js',
   'app.html',

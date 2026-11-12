@@ -17,6 +17,10 @@ Open the archive page from the toolbar. The first check reads the newest page of
 
 The badge counts the alerts that arrived since you last opened the archive page. A `!` means the last sync could not run: no GridPane tab, signed out, or another error.
 
+## Trying it with sample data
+
+Settings → **Sample data** → **Load sample data** fills the archive, the Sync log and the webhook preview with 24 fictional alerts, so you can try the views before the first sync. It replaces the alerts, log and webhook settings stored in this browser and pauses automatic sync until you press **Remove sample data**. GridPane is not affected.
+
 ## Where the data lives
 
 Everything is stored locally in IndexedDB. Uninstalling the extension deletes it, so export first. See [Limits](../reference/limits.md) and [Collection and storage](../reference/collection-and-storage.md).

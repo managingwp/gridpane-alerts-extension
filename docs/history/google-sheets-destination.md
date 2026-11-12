@@ -3,7 +3,7 @@ title: "Abandoned: the Google Sheets destination (2026-11-11)"
 description: What the Google Sheets design was, why it was abandoned before implementation, and what reviving it would take.
 ---
 
-The plan [`plans/20261110-google-sheets-destination.md`](https://github.com/managingwp/gridpane-alerts-extension/blob/main/plans/20261110-google-sheets-destination.md) (status `❌ Abandoned`) designed an opt-in destination that would create a spreadsheet in the user's own Drive and append one row per new alert.
+The abandoned Google Sheets destination (2026-11-11) would have created a spreadsheet in the user's own Drive and appended one row per new alert.
 
 ## What the design was
 
@@ -22,13 +22,13 @@ The design needed four pieces of human setup before the first line of delivery c
 3. A Chrome-extension OAuth client bound to the extension id.
 4. The client id committed in `manifest.json` — a hard prerequisite the executor could not invent.
 
-That is a lot of setup and distribution overhead for a row-oriented store, and it moves a Google review surface into the extension's listing. The plan reached Phase 2, stopped on the missing client id, and was abandoned on 2026-11-11: the feature branch was deleted and the plan marked abandoned rather than left half-built.
+That is a lot of setup and distribution overhead for a row-oriented store, and it moves a Google review surface into the extension's listing. The work reached the OAuth step, stopped on the missing client id, and was abandoned on 2026-11-11: the feature branch was deleted rather than left half-built.
 
 ## What it would take to revive it
 
 - Create the Google Cloud project, consent screen and extension OAuth client, and supply the public client id.
-- Re-approve the abandoned plan and re-run its phases from the OAuth step.
-- Budget for the duplicate guard and the store-listing change; the plan already describes both.
+- Design the OAuth step again from the notes above.
+- Budget for the duplicate guard and the store-listing change; both are described above.
 - Re-check the Sheets API quota and pricing before committing — the [decision record](../reference/storage-decisions.md) notes that quota overage may be charged.
 
 ## What replaced it
