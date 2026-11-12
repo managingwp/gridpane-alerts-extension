@@ -15,7 +15,7 @@ How to get `gridpane-alerts-<version>.zip` published. The listing copy lives in 
 | Trader status | Declare trader or non-trader for EEA consumer law. A free, non-commercial extension is normally non-trader; a trader must publish contact details |
 | Contact email | Verified on the Account page; it is what Google emails about rejections and takedowns |
 | Privacy policy | Published at `privacyPolicyUrl` from `store/listing.json` and reachable without a redirect loop |
-| Screenshots | Four at exactly 1280×800, captured from a redacted demo team — see `store/screenshots/README.md` |
+| Screenshots | Four at exactly 1280×800 from the extension's sample data, with Chrome's alpha channel stripped by `node scripts/flatten-screenshots.mjs` — see `store/screenshots/README.md` |
 | Package | `node scripts/package.mjs` output, with `manifest.json` at the zip root |
 
 The extension's `name`, `version` and `description` come from the package and are **frozen at upload**. A typo means editing `manifest.json`, bumping the version and uploading again.
@@ -98,7 +98,7 @@ Review time varies with the permissions requested; broad optional host permissio
 - [ ] `node scripts/package.mjs --check` passes.
 - [ ] The zip's first entry is `manifest.json`.
 - [ ] `privacyPolicyUrl` loads, with the placeholders in `docs/PRIVACY.md` replaced.
-- [ ] Four screenshots pass `node scripts/check-screenshots.mjs store/screenshots`.
+- [ ] Four screenshots pass `node scripts/flatten-screenshots.mjs store/screenshots` and `node scripts/check-screenshots.mjs store/screenshots`.
 - [ ] Every permission has a justification in `store/listing.json`.
 - [ ] The description carries the unofficial disclaimer.
 - [ ] `testInstructions` explains how a reviewer reaches a working state.

@@ -9,6 +9,7 @@ There is no build step. `scripts/package.mjs` copies the runtime files into a fl
 node --test
 node scripts/package.mjs          # dist/gridpane-alerts-<version>.zip and dist/unpacked/
 node scripts/package.mjs --check  # validate only, write nothing
+node scripts/flatten-screenshots.mjs store/screenshots  # strip Chrome's alpha from the store captures
 ```
 
 ## Runtime files
@@ -21,7 +22,7 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 
 ## Tests
 
-`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, the Slack payload, the sample fixtures, the packager) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
+`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, the Slack payload, the sample fixtures, the packager, the screenshot codec) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
 
 ## Code map
 
@@ -33,3 +34,4 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 | `normalize.js` | alert normalisation and webhook/Slack payloads |
 | `lib/scan.js`, `lib/tabs.js` | pure cursor/backfill helpers and the GridPane tab checks |
 | `scripts/package.mjs` | packaging and manifest/store validation |
+| `scripts/png.mjs`, `scripts/flatten-screenshots.mjs` | PNG codec and the store screenshot alpha flattener |

@@ -51,6 +51,7 @@ There is no build step. The docs site has one of its own, under `website/`.
 node --test
 node scripts/package.mjs          # dist/gridpane-alerts-<version>.zip and dist/unpacked/
 node scripts/package.mjs --check  # validate only, write nothing
+node scripts/flatten-screenshots.mjs store/screenshots  # strip Chrome's alpha from the store captures
 ```
 
 To release, bump `version` in `manifest.json`, commit, then tag and push:
