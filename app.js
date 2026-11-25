@@ -1,5 +1,6 @@
 import * as store from './db.js';
 import { resolve, webhookPayload } from './normalize.js';
+import { intervalSecondsFromSettings, splitInterval, parseIntervalInput } from './lib/polling.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -500,8 +501,10 @@ function exportLog() {
 // ---------- Settings ----------
 async function loadSettings() {
   const { settings = {} } = await chrome.storage.local.get('settings');
-  const s = { pollMinutes: 5, overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
-  $('sPoll').value = s.pollMinutes;
+  const s = { pollSeconds: 300, overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
+  const poll = splitInterval(intervalSecondsFromSettings(settings));
+  $('sPollMin').value = poll.minutes;
+  $('sPollSec').value = poll.seconds;
   $('sOverlap').value = s.overlapHours;
   $('sWhEnabled').checked = s.webhookEnabled;
   $('sWhUrl').value = s.webhookUrl;
@@ -552,6 +555,8 @@ async function renderSettingsInfo() {
 function msg(text, bad = false) { const m = $('sMsg'); m.textContent = text; m.style.color = bad ? 'var(--err)' : ''; }
 
 async function saveSettings() {
+  const interval = parseIntervalInput($('sPollMin').value, $('sPollSec').value);
+  if (interval.error) return msg(interval.error, true);
   const url = $('sWhUrl').value.trim();
   const enabled = $('sWhEnabled').checked;
   if (url) {
@@ -564,12 +569,15 @@ async function saveSettings() {
     return msg('Add a webhook URL first.', true);
   }
   const settings = {
-    pollMinutes: Math.max(1, parseInt($('sPoll').value, 10) || 5),
+    pollSeconds: interval.seconds,
     overlapHours: Math.min(24, Math.max(0.5, parseFloat($('sOverlap').value) || 2)),
     webhookEnabled: enabled, webhookUrl: url, webhookSecret: $('sWhSecret').value,
     webhookFormat: $('sWhFormat').value, webhookIncludeBackfill: $('sWhBackfill').checked,
   };
   await chrome.storage.local.set({ settings });
+  const poll = splitInterval(interval.seconds);
+  $('sPollMin').value = poll.minutes;
+  $('sPollSec').value = poll.seconds;
   await send({ type: 'settingsChanged' });
   msg('Saved.');
 }

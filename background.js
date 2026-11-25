@@ -3,6 +3,7 @@ import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
 import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
+import { intervalSecondsFromSettings } from './lib/polling.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -20,7 +21,7 @@ const MANUAL_BACKFILL_PAGES = 100;      // older pages a watched manual run cons
 // two-hour default and bounds the range.
 const RATE_LIMIT_STEPS = [5, 15, 30, 60]; // minutes to pause after consecutive 429s
 const DEFAULTS = {
-  pollMinutes: 5,
+  pollSeconds: 300,
   overlapHours: 2, // 0.5–24 hours, see overlapSeconds()
   webhookEnabled: false,
   webhookUrl: '',
@@ -33,7 +34,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function getSettings() {
   const { settings = {} } = await chrome.storage.local.get('settings');
-  return { ...DEFAULTS, ...settings };
+  // pollSeconds is the source of truth; a record written before intervals had
+  // seconds still carries pollMinutes, so read the raw object for the migration.
+  return { ...DEFAULTS, ...settings, pollSeconds: intervalSecondsFromSettings(settings) };
 }
 async function getState() {
   const { state = {} } = await chrome.storage.local.get('state');

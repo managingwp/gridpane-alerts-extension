@@ -337,7 +337,7 @@ export function buildDemo(now = Date.now()) {
   };
 
   const settings = {
-    pollMinutes: 5,
+    pollSeconds: 300,
     overlapHours: 2,
     webhookEnabled: true,
     webhookUrl: 'https://hooks.example.com/services/demo',
