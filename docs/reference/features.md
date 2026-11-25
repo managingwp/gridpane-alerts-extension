@@ -21,6 +21,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 
 - **Local IndexedDB.** Database `gp-alerts` version 2 with the `notifications`, `outbox`, `kv` and `synclog` stores (`db.js`).
 - **Full message text.** The Message column shows the whole alert without clipping; a row expands to the raw JSON with a copy button (`app.js`, `app.html`).
+- **Copy a cell.** Hovering a row shows a small copy button beside the Message, Server and Site values; it copies exactly what the cell shows and leaves the row collapsed (`app.js`, `app.css`).
 - **Sorting and columns.** Every column header sorts; a Columns menu adds server IP, read state and ID (`app.js`).
 - **Search.** ANDed, case-insensitive terms with the `title:` `msg:` `server:` `ip:` `site:` `by:` `severity:` `id:` prefixes, quoted phrases and `-` exclusion (`app.js`).
 - **Export.** CSV or JSON of the current filtered view (`app.js`).
