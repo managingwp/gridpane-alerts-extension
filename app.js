@@ -245,15 +245,21 @@ copyLive.setAttribute('role', 'status');
 copyLive.setAttribute('aria-live', 'polite');
 document.body.append(copyLive);
 
+function announce(text) {
+  copyLive.textContent = '';
+  setTimeout(() => { copyLive.textContent = text; }, 10);
+}
+
 function copyCellButton(label, value) {
   const btn = el('button', { type: 'button', className: 'copy-cell' });
   btn.setAttribute('aria-label', `Copy ${label.toLowerCase()}`);
   btn.append(copyIcon('copy'));
   btn.onclick = async (e) => {
     e.stopPropagation();
+    const pending = copyTimers.get(btn);
+    if (pending) { clearTimeout(pending); copyTimers.delete(btn); }
     try {
       await navigator.clipboard.writeText(value);
-      clearTimeout(copyTimers.get(btn));
       btn.classList.add('copied');
       btn.replaceChildren(copyIcon('check'));
       copyTimers.set(btn, setTimeout(() => {
@@ -261,9 +267,11 @@ function copyCellButton(label, value) {
         btn.replaceChildren(copyIcon('copy'));
         copyTimers.delete(btn);
       }, 1600));
-      copyLive.textContent = `${label} copied`;
+      announce(`${label} copied`);
     } catch {
-      copyLive.textContent = `Could not copy ${label.toLowerCase()}`;
+      btn.classList.remove('copied');
+      btn.replaceChildren(copyIcon('copy'));
+      announce(`Could not copy ${label.toLowerCase()}`);
     }
   };
   return btn;

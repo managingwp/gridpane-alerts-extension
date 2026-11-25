@@ -68,6 +68,7 @@ td.c-message .msg { white-space: pre-line; overflow-wrap: anywhere; }
 td.c-server, td.c-site, td.c-ip { white-space: nowrap; }
 td.has-copy .cell-body { display: flex; align-items: flex-start; gap: 6px; }
 td.has-copy .cell-value { flex: 0 1 auto; min-width: 0; }
+td.c-server .cell-value, td.c-site .cell-value { flex-shrink: 0; }
 .copy-cell {
   flex: none;
   display: inline-flex;
