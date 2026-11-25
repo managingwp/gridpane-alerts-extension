@@ -11,7 +11,8 @@
   "justifications": {
     "storage": "Keeps the sync cursor, the user's settings, the sync log and the cached server and site names between browser restarts.",
     "unlimitedStorage": "The archive holds alerts that can be several kilobytes each. A busy fleet's history exceeds the 10 MB default quota, and the extension stores it in IndexedDB on the user's own device.",
-    "alarms": "Runs the background check every 5 minutes by default, a period the user can change down to 2 minutes, while Chrome is open.",
+    "alarms": "Runs the background check at intervals from 1 minute to 24 hours, while Chrome is open.",
+    "offscreen": "Times check intervals shorter than 1 minute from a hidden extension page, because Chrome alarms cannot repeat faster than 30 seconds in a published extension. The page only runs a timer: it reads no page content and makes no network requests.",
     "scripting": "If Chrome does not attach the my.gridpane.com session cookie to the extension's own request, the extension repeats the same read-only GET inside an open GridPane tab using that tab's session. It only ever targets my.gridpane.com.",
     "https://my.gridpane.com/*": "Reads the notification, server and site endpoints the GridPane panel itself uses, with the user's own signed-in session. The requests are read-only and never mark an alert as read.",
     "https://*/*": "The webhook URL is chosen by the user and may be any host. This optional permission is requested for that single origin only when the user saves the webhook, never at install.",

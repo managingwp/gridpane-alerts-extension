@@ -3,7 +3,7 @@ import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
 import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
-import { intervalSecondsFromSettings } from './lib/polling.js';
+import { intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes } from './lib/polling.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -526,17 +526,50 @@ async function updateBadge() {
   await chrome.action.setTitle({ title: 'GridPane Alerts' });
 }
 
-async function scheduleAlarm() {
-  const { pollMinutes } = await getSettings();
+// A published extension's alarms cannot repeat faster than every 30 seconds
+// (60 before Chrome 120), so anything under a minute is timed by an offscreen
+// document whose worker ticks and messages this service worker. Both paths run
+// the same sync('auto'); only one of them is ever active.
+const TIMER_PAGE = 'timer.html';
+
+async function timerDocumentOpen() {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(TIMER_PAGE)],
+  });
+  return contexts.length > 0;
+}
+
+async function closeTimerDocument() {
+  if (await timerDocumentOpen()) await chrome.offscreen.closeDocument();
+}
+
+async function openTimerDocument() {
+  if (await timerDocumentOpen()) return;
+  await chrome.offscreen.createDocument({
+    url: TIMER_PAGE,
+    reasons: ['WORKERS'],
+    justification: 'Runs the repeating check timer while the check interval is under one minute.',
+  });
+}
+
+async function scheduleChecks() {
+  const { pollSeconds } = await getSettings();
   await chrome.alarms.clear(ALARM);
-  await chrome.alarms.create(ALARM, { periodInMinutes: Math.max(2, Number(pollMinutes) || 5), delayInMinutes: 0.1 });
+  await closeTimerDocument();
+  if (await demoState()) return;
+  if (usesTimerDocument(pollSeconds)) {
+    await openTimerDocument();
+    return;
+  }
+  await chrome.alarms.create(ALARM, { periodInMinutes: alarmPeriodMinutes(pollSeconds), delayInMinutes: 0.1 });
 }
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
-  await scheduleAlarm();
+  await scheduleChecks();
   if (reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
 });
-chrome.runtime.onStartup.addListener(scheduleAlarm);
+chrome.runtime.onStartup.addListener(scheduleChecks);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) sync('auto'); });
 chrome.action.onClicked.addListener(() => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }));
 
@@ -609,7 +642,7 @@ async function loadDemo() {
     demoMode: { active: true, seededAt: Date.now(), alerts: demo.notifications.length, previousSettings },
     state: demo.state,
   });
-  await chrome.alarms.clear(ALARM);
+  await scheduleChecks();
   await updateBadge();
   return { ok: true, count: demo.notifications.length };
 }
@@ -631,7 +664,7 @@ async function exitDemo() {
     rateLimitStreak: 0, backoffUntil: 0,
   });
   await chrome.storage.local.remove('demoMode');
-  await scheduleAlarm();
+  await scheduleChecks();
   await updateBadge();
   return { ok: true, removed: true };
 }
@@ -640,7 +673,7 @@ const handlers = {
   sync: () => sync('manual'),
   importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return syncNew(r, { batch: MANUAL_BACKFILL_PAGES }); }, 'manual'),
   resetHistory: async () => { await setState({ backfill: { nextPage: 1, done: false } }); return { ok: true }; },
-  settingsChanged: async () => { await scheduleAlarm(); await flushOutbox(); return { ok: true }; },
+  settingsChanged: async () => { await scheduleChecks(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
   flushOutbox: async () => ({ ok: true, ...(await flushOutbox(true)) }),
   gapAudit: () => requireTabOrReply(() => gapAudit()),
@@ -648,6 +681,14 @@ const handlers = {
   openGridPane: () => openGridPane(),
   loadDemo: () => loadDemo(),
   exitDemo: () => exitDemo(),
+  timerConfig: async () => {
+    const { pollSeconds } = await getSettings();
+    return { ok: true, seconds: pollSeconds };
+  },
+  tick: () => {
+    sync('auto').catch(() => {});
+    return { ok: true };
+  },
   seen: async () => {
     if (await demoState()) return { ok: true, demo: true };
     await setState({ unseen: 0 }); await updateBadge(); return { ok: true };
