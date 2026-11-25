@@ -3,7 +3,7 @@ import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
 import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
-import { intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
+import { DEFAULT_INTERVAL_SECONDS, intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -20,7 +20,7 @@ const MANUAL_BACKFILL_PAGES = 100;      // older pages a watched manual run cons
 // two-hour default and bounds the range.
 const RATE_LIMIT_STEPS = [5, 15, 30, 60]; // minutes to pause after consecutive 429s
 const DEFAULTS = {
-  pollSeconds: 300,
+  pollSeconds: DEFAULT_INTERVAL_SECONDS,
   overlapHours: 2, // 0.5–24 hours, see overlapSeconds()
   webhookEnabled: false,
   webhookUrl: '',
@@ -235,14 +235,14 @@ function startRun(kind, fn, trigger = 'auto') {
     // it stored a new-walk alert or when no automatic row was written for five
     // minutes. A manual attempt always records one row, so the click is
     // auditable, and an automatic no-tab run records none.
-    const quiet = !shouldLogRun({
+    const skipLog = !shouldLogRun({
       trigger: run.trigger,
       status: result.status,
       newWalkCount: run.newWalkCount,
       lastAutoLogAt: after.lastAutoLogAt,
       now: Date.now(),
     });
-    if (!quiet) {
+    if (!skipLog) {
       await store.addLog(entry);
       if (run.trigger !== 'manual') await setState({ lastAutoLogAt: Date.now() });
       try {
@@ -556,7 +556,9 @@ async function closeTimerDocument() {
 }
 
 async function openTimerDocument() {
-  if (await timerDocumentOpen()) return;
+  // A document left open by a failed close would keep its old interval, so
+  // replace it rather than reusing it: one scheduler, with the current setting.
+  if (await timerDocumentOpen()) await chrome.offscreen.closeDocument();
   await chrome.offscreen.createDocument({
     url: TIMER_PAGE,
     reasons: ['WORKERS'],

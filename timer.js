@@ -9,10 +9,6 @@ worker.onmessage = () => {
   chrome.runtime.sendMessage({ type: 'tick' }).catch(() => {});
 };
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'timerSet') worker.postMessage({ seconds: msg.seconds });
-});
-
 chrome.runtime.sendMessage({ type: 'timerConfig' })
   .then((reply) => { if (reply?.seconds) worker.postMessage({ seconds: reply.seconds }); })
   .catch(() => {});

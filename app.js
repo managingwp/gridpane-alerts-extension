@@ -499,12 +499,16 @@ function exportLog() {
 }
 
 // ---------- Settings ----------
-async function loadSettings() {
-  const { settings = {} } = await chrome.storage.local.get('settings');
-  const s = { pollSeconds: 300, overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
-  const poll = splitInterval(intervalSecondsFromSettings(settings));
+function paintInterval(seconds) {
+  const poll = splitInterval(seconds);
   $('sPollMin').value = poll.minutes;
   $('sPollSec').value = poll.seconds;
+}
+
+async function loadSettings() {
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  const s = { overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
+  paintInterval(intervalSecondsFromSettings(settings));
   $('sOverlap').value = s.overlapHours;
   $('sWhEnabled').checked = s.webhookEnabled;
   $('sWhUrl').value = s.webhookUrl;
@@ -575,9 +579,7 @@ async function saveSettings() {
     webhookFormat: $('sWhFormat').value, webhookIncludeBackfill: $('sWhBackfill').checked,
   };
   await chrome.storage.local.set({ settings });
-  const poll = splitInterval(interval.seconds);
-  $('sPollMin').value = poll.minutes;
-  $('sPollSec').value = poll.seconds;
+  paintInterval(interval.seconds);
   await send({ type: 'settingsChanged' });
   msg('Saved.');
 }
