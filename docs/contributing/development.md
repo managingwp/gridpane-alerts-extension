@@ -22,7 +22,7 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 
 ## Tests
 
-`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, the Slack payload, the sample fixtures, the packager, the screenshot codec) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
+`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, `lib/polling.js`, the Slack payload, the sample fixtures, the packager, the screenshot codec) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
 
 ## Code map
 
@@ -33,5 +33,7 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 | `db.js` | IndexedDB `gp-alerts` (notifications, outbox, kv, synclog) |
 | `normalize.js` | alert normalisation and webhook/Slack payloads |
 | `lib/scan.js`, `lib/tabs.js` | pure cursor/backfill helpers and the GridPane tab checks |
+| `lib/polling.js` | pure interval, scheduler-choice, backfill-pacing and sync-log rules |
+| `timer.html`, `timer.js`, `timer-worker.js` | offscreen timer document and its worker, used below a one-minute interval |
 | `scripts/package.mjs` | packaging and manifest/store validation |
 | `scripts/png.mjs`, `scripts/flatten-screenshots.mjs` | PNG codec and the store screenshot alpha flattener |

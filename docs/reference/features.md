@@ -10,7 +10,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 - **Reads the notification bell with your session.** `GET https://my.gridpane.com/notifications/recent?page=N`, the same endpoint the bell uses; it never marks an alert as read (`background.js`).
 - **Scheduled checks.** Every 5 minutes by default, 15 seconds to 24 hours in Settings. Intervals under a minute run from a worker in an offscreen document, because published alarms cannot repeat faster than 30 seconds (`lib/polling.js`, `background.js`, `timer.js`).
 - **Catch-up overlap.** Each check pages back below the cursor through a configurable overlap — 2 hours by default, 0.5–24 in Settings — so an alert GridPane inserts late is still stored (`lib/scan.js`, `background.js`).
-- **Automatic backfill.** Up to 20 older pages per automatic check, paced at about one page per 15 seconds, and up to 100 per manual run, resumable from `state.backfill` (`background.js`).
+- **Automatic backfill.** Up to 20 older pages per automatic check, paced at about one page per 15 seconds, and up to 100 per manual run, resumable from `state.backfill` (`lib/polling.js`, `background.js`).
 - **Gap audit.** Walks up to 50 pages of the bell and reports what the archive is missing, newest first, with the pages covered and whether the cap was hit (`background.js`, Settings).
 - **GridPane tab preflight.** Every manual and automatic run, the backfill, the gap audit and the name refresh stop before the first request without an open `https://my.gridpane.com/` tab; the banner offers **Open GridPane** (`lib/tabs.js`, `background.js`).
 - **Retry on tab load.** Opening the tab after a no-tab check starts one automatic sync when it finishes loading, at most once per 30 seconds (`lib/tabs.js`, `background.js`).
@@ -24,7 +24,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 - **Sorting and columns.** Every column header sorts; a Columns menu adds server IP, read state and ID (`app.js`).
 - **Search.** ANDed, case-insensitive terms with the `title:` `msg:` `server:` `ip:` `site:` `by:` `severity:` `id:` prefixes, quoted phrases and `-` exclusion (`app.js`).
 - **Export.** CSV or JSON of the current filtered view (`app.js`).
-- **Sync log.** The last 1,000 rows: every manual run and every automatic run that stores a new alert, with routine automatic rows at most once every five minutes, plus result, cursor, pages, requests, 429s, new alerts, deliveries and duration, exportable as CSV (`db.js`, `app.js`, `lib/polling.js`).
+- **Sync log.** The last 1,000 rows: every manual run and every automatic run that stores an alert from the new-alert walk, with routine automatic rows at most once every five minutes, plus result, cursor, pages, requests, 429s, new alerts, deliveries and duration, exportable as CSV (`db.js`, `app.js`, `lib/polling.js`).
 - **Badge.** New-alert count since the page was last opened; `!` when the last sync could not run (`background.js`).
 
 ## Delivery
