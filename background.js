@@ -1,9 +1,10 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
-import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
+import { pageOldest, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds, walkStep } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
 import { DEFAULT_INTERVAL_SECONDS, intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
+import { DEFAULT_BACKFILL_COUNT, clampBackfillCount, backfillIds } from './lib/webhook.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -27,6 +28,7 @@ const DEFAULTS = {
   webhookSecret: '',
   webhookFormat: 'full', // 'full' | 'chat'
   webhookIncludeBackfill: false,
+  webhookBackfillCount: DEFAULT_BACKFILL_COUNT,
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -228,6 +230,7 @@ function startRun(kind, fn, trigger = 'auto') {
       newCount: run.newCount, webhookSent: wh?.sent || 0, webhookFailed: wh?.failed || 0,
       error: result.error || null, notes: run.notes.join(' · '),
       cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
+      boundaryPage: run.boundaryPage ?? null,
       backfillFrom: run.backfillFrom ?? null, backfillTo: run.backfillTo ?? null, backfillDone: run.backfillDone ?? null,
     };
     // A short interval runs this same path many times an hour, so the log keeps
@@ -250,6 +253,7 @@ function startRun(kind, fn, trigger = 'auto') {
         debug.push({
           started: entry.started, kind, trigger: entry.trigger, status: entry.status,
           cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
+          boundaryPage: entry.boundaryPage,
           backfillFrom: entry.backfillFrom, backfillTo: entry.backfillTo, backfillDone: entry.backfillDone,
           pages: run.pageDetail,
         });
@@ -292,11 +296,12 @@ async function handleRunError(e) {
   return { ok: false, status: 'error', error: msg };
 }
 
-// Regular sync: walk back from the newest alert through the overlap window below
-// the cursor, then continue into the backfill so older alerts arrive on their own.
-// Alerts are stored by id, so re-reading a page is harmless; what matters is that
-// an alert inserted below the cursor is still seen and that the bell is emptied
-// in throttled, resumable batches.
+// Regular sync: read from the newest alert down to the last alert stored by the
+// previous check (the cursor), then confirm the next page and stop as soon as it
+// adds nothing new. A late batch found on that probe page keeps the walk going
+// until a clean page, but never past the configured overlap. The backfill then
+// continues below the probe page so older alerts arrive on their own; using ids
+// keeps every re-read harmless.
 async function syncNew(r, { batch }) {
   const settings = await getSettings();
   const state = await getState();
@@ -323,6 +328,8 @@ async function syncNew(r, { batch }) {
   let newest = null;
   let reached = firstRun;
   let lastWalkedPage = 0;
+  let boundaryPage = null;
+  let floorStop = false;
   for (let page = 1; page <= MAX_WALK_PAGES; page++) {
     const j = await gpGet(`/notifications/recent?page=${page}`);
     r.pages = page;
@@ -336,17 +343,24 @@ async function syncNew(r, { batch }) {
     r.newCount += fresh.length;
     r.newWalkCount += fresh.length;
     r.freshRecs.push(...fresh);
+    const more = !!j.willLoadMoreNoti;
+    const step = walkStep({ page, items, cursor, boundaryPage, freshCount: fresh.length, more, floor });
+    boundaryPage = step.boundaryPage;
     r.pageDetail.push({
       page, count: items.length, first: String(items[0].id), last: String(items[items.length - 1].id),
-      oldest: pageOldest(items), more: !!j.willLoadMoreNoti,
+      oldest: step.oldest, more, boundary: boundaryPage === page,
     });
 
     if (firstRun) { reached = true; break; } // page 1 is the whole new-alert walk
-    if (shouldStop({ more: j.willLoadMoreNoti, oldest: pageOldest(items), floor })) { reached = true; break; }
+    // A clean page after the last stored alert ends the walk; an overlap-cap stop
+    // leaves the cursor where it was so the unfollowed late batch is seen again.
+    if (step.stop) { reached = step.reached; floorStop = step.floorStop; break; }
     await sleep(PAGE_DELAY);
   }
-  r.capped = !reached;
-  if (r.capped) r.notes.push(`stopped at the ${MAX_WALK_PAGES}-page limit before reaching the ${overlap / 3600}-hour overlap; the backfill continues below it`);
+  r.boundaryPage = boundaryPage;
+  r.capped = !reached && !floorStop;
+  if (r.capped) r.notes.push(`stopped at the ${MAX_WALK_PAGES}-page limit before confirming the last stored alert; the backfill continues below it`);
+  if (floorStop) r.notes.push(`late-batch probe stopped at the ${overlap / 3600}-hour overlap; the cursor stays put`);
   if (firstRun) r.notes.push('first run: started tracking from the newest alerts');
 
   // Backfill: resume below the page the new-alert walk just read. A finished
@@ -409,10 +423,11 @@ async function syncNew(r, { batch }) {
     else r.notes.push(`name refresh failed: ${e.message || e}`);
   }
 
-  // The cursor only moves once the walk reached the overlap floor (or the end of
-  // history), and never goes backwards. The gap flag now tracks the backfill: it
-  // clears when GridPane has no more pages below, not when an audit happened to
-  // see something.
+  // The cursor only moves once the walk confirmed the page after the last stored
+  // alert (or reached the end of history), and never goes backwards. A walk cut
+  // off by the overlap cap leaves it where it was. The gap flag now tracks the
+  // backfill: it clears when GridPane has no more pages below, not when an audit
+  // happened to see something.
   const next = nextCursor({ reached, newest, current: cursor });
   return { cursor: next, syncGap: !nextBackfill.done, backfill: nextBackfill };
 }
@@ -520,6 +535,31 @@ async function testWebhook() {
   const payload = webhookPayload(latest, lookups, settings.webhookFormat);
   if (payload.event) payload.test = true;
   return postWebhook(settings, payload, 'test');
+}
+
+// Re-send the newest N stored alerts through the outbox. A backfill is a replay
+// for a new endpoint, so alerts already delivered are queued again; receivers
+// key on X-GPAlerts-Id. The batch goes oldest first, like live alerts.
+async function backfillWebhook(count) {
+  const settings = await getSettings();
+  if (!settings.webhookEnabled || !settings.webhookUrl) throw new Error('Enable the webhook and save a URL first');
+  const all = await store.getAll('notifications');
+  const ids = backfillIds(all, clampBackfillCount(count, settings.webhookBackfillCount));
+  if (!ids.length) return { ok: true, queued: 0, sent: 0, pending: 0 };
+  const byId = new Map(all.map((r) => [String(r.id), r]));
+  const batch = ids.map((id) => byId.get(id)).filter(Boolean);
+  await store.putMany('outbox', batch.map((r) => ({ id: r.id, created_at: Number(r.created_at) || 0, attempts: 0, next_at: 0 })));
+  await flushOutbox(true);
+  const queued = new Set(ids);
+  let left = (await store.getAll('outbox')).filter((o) => queued.has(String(o.id)));
+  // A flush that was already running may have read the outbox before this batch
+  // was added. Retry once when any remaining item is still unattempted; a real
+  // failure keeps attempts and waits for the normal backoff.
+  if (left.some((o) => !o.attempts)) {
+    await flushOutbox(true);
+    left = (await store.getAll('outbox')).filter((o) => queued.has(String(o.id)));
+  }
+  return { ok: true, queued: batch.length, sent: batch.length - left.length, pending: left.length };
 }
 
 // ---------- Badge, alarms, wiring ----------
@@ -688,6 +728,7 @@ const handlers = {
   resetHistory: async () => { await setState({ backfill: { nextPage: 1, done: false } }); return { ok: true }; },
   settingsChanged: async () => { await scheduleChecks(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
+  backfillWebhook: async (message) => backfillWebhook(message?.count),
   flushOutbox: async () => ({ ok: true, ...(await flushOutbox(true)) }),
   gapAudit: () => requireTabOrReply(() => gapAudit()),
   refreshLookups: () => requireTabOrReply(async () => { await refreshLookups(true); return { ok: true }; }),

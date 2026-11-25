@@ -3,7 +3,7 @@ title: Webhook delivery
 description: Send every new alert to your own endpoint as full JSON, chat text or a Slack Block Kit card, with de-duplication headers and an optional HMAC signature.
 ---
 
-Settings → Webhook. Saving asks Chrome for permission to call that host.
+Settings → Webhook. Saving asks Chrome for permission to call that host. Each card saves on its own: **Save sync settings** stores the interval and catch-up overlap, and **Save webhook settings** stores this card. Saving one does not change the other card's stored values, and an unsaved edit in the other card stays in the form. A denied host permission stores nothing.
 
 ## Full JSON
 
@@ -42,6 +42,10 @@ One Block Kit attachment with a severity emoji and title, severity/server/site/c
 Failed deliveries are queued and retried with backoff (2, 4, 8 … 60 minutes). Settings shows the queue with Retry / Discard buttons. Alerts from the first history import are not sent unless you tick that option.
 
 Severity is a best guess from the alert title and icon (GridPane doesn't send one).
+
+## Send stored alerts again (backfill)
+
+**Backfill** in the Webhook card re-sends the newest N alerts already in the local archive — 30 by default, 1–500 — oldest first. It is a replay for a new endpoint, so alerts delivered before are sent again; key your receiver on `X-GPAlerts-Id` to ignore duplicates. The saved, enabled webhook is required, and the batch uses the same outbox, format, signature and retry/backoff as live alerts. It reads only the local archive, so no GridPane tab is needed. A backfill that meets a failing endpoint leaves the rest in the outbox, reports how many are pending, and they retry on the usual backoff.
 
 ## Using the webhook as a storage destination
 

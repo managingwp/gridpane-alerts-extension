@@ -21,7 +21,7 @@ This page is a reference map, not a decision. It separates what ships now from w
 The extension pages `GET https://my.gridpane.com/notifications/recent?page=N` with the session your browser already has, inside an open `https://my.gridpane.com/` tab. It never marks an alert as read.
 
 - Checks every 5 minutes by default, 15 seconds to 24 hours in Settings.
-- Pages back through a configurable overlap below the cursor — 2 hours by default, 0.5–24 — so an alert GridPane inserts late is still stored.
+- Stops at the last stored alert: each check reads down to the cursor, then reads the page after the last stored alert and stops when that page is already archived. The configurable overlap — 2 hours by default, 0.5–24 — only caps how far a late batch found on the confirmation page is followed.
 - Runs a resumable backfill (up to 20 older pages per automatic check, paced at about one page per 15 seconds, and up to 100 per manual run) and a 50-page gap audit.
 - Pauses on 429 with 5/15/30/60-minute backoff and resumes the same page.
 - Covers only the team currently selected in the panel, and only what GridPane keeps in the bell.
@@ -44,7 +44,7 @@ Four destination options are drafted and on hold. They are alternatives, not a q
 | Local folder snapshot | On hold | None — reads the existing archive |
 | Google Sheets (revived) | On hold | None — ingests pushed alerts |
 
-Collection changes already shipped — the configurable overlap, the tab-load retry and the Slack payload — are on [Features](./features.md).
+Collection changes already shipped — the boundary probe, the overlap cap, the tab-load retry and the Slack payload — are on [Features](./features.md).
 
 ### Possible
 

@@ -11,6 +11,7 @@
 
 import { normalize } from './normalize.js';
 import { DEFAULT_INTERVAL_SECONDS } from './lib/polling.js';
+import { DEFAULT_BACKFILL_COUNT } from './lib/webhook.js';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -345,6 +346,7 @@ export function buildDemo(now = Date.now()) {
     webhookSecret: '',
     webhookFormat: 'slack',
     webhookIncludeBackfill: false,
+    webhookBackfillCount: DEFAULT_BACKFILL_COUNT,
   };
 
   return { notifications, lookups, synclog, state, settings };

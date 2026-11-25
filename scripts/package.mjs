@@ -31,6 +31,8 @@ export const RUNTIME_FILES = [
   'lib/scan.js',
   'lib/tabs.js',
   'lib/polling.js',
+  'lib/settings.js',
+  'lib/webhook.js',
   'app.html',
   'app.js',
   'app.css',

@@ -104,10 +104,14 @@
         <label class="row">Check GridPane every
           <input id="sPollMin" type="number" min="0" max="1440" step="1" aria-label="Check interval minutes"> min
           <input id="sPollSec" type="number" min="0" max="59" step="1" aria-label="Check interval seconds"> sec</label>
-        <p class="muted">The shortest interval is 15 seconds. Intervals under a minute use a background timer, because Chrome alarms cannot repeat that quickly in a published extension. Short intervals read the same pages more often, so they use more requests and can hit GridPane's rate limit sooner; lower the catch-up overlap if that happens.</p>
+        <p class="muted">The shortest interval is 15 seconds. Intervals under a minute use a background timer, because Chrome alarms cannot repeat that quickly in a published extension. A shorter interval checks more often, but each routine check stops at the last stored alert plus one confirmation page, so it stays cheap. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
         <label class="row">Catch-up overlap
           <input id="sOverlap" type="number" min="0.5" max="24" step="0.5"> hours</label>
-        <p class="muted">Each check pages back through the newest alerts and the configured catch-up overlap (2 hours by default), so alerts GridPane adds late are still stored. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
+        <p class="muted">A check stops as soon as the page after the last stored alert is already archived, so a quiet check reads one page plus its confirmation page. The catch-up overlap (2 hours by default) only caps how far a late batch found below that point is followed. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen.</p>
+        <div class="actions">
+          <button id="sSaveSync" class="btn">Save sync settings</button>
+          <span id="sSyncMsg" class="muted"></span>
+        </div>
         <div class="actions">
           <button id="sLookups" class="btn ghost">Refresh server &amp; site names</button>
         </div>
@@ -143,10 +147,15 @@
         </label>
         <label class="check"><input id="sWhBackfill" type="checkbox"> Also send alerts found during a full history import</label>
         <div class="actions">
-          <button id="sSave" class="btn">Save settings</button>
+          <button id="sSaveWebhook" class="btn">Save webhook settings</button>
           <button id="sTest" class="btn ghost">Send test</button>
+          <label class="row">Send the last
+            <input id="sWhBackfillCount" type="number" min="1" max="500" step="1" aria-label="Alerts to backfill"> stored alerts
+          </label>
+          <button id="sWhBackfillNow" class="btn ghost">Backfill</button>
           <span id="sMsg" class="muted"></span>
         </div>
+        <p class="muted">Re-sends alerts already delivered, so a new endpoint starts with recent history. De-duplicate on <code>X-GPAlerts-Id</code>; 500 is the most one backfill sends.</p>
         <div class="outbox">
           <span id="sOutbox" class="muted"></span>
           <button id="sRetry" class="btn ghost small">Retry now</button>

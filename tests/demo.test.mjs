@@ -108,6 +108,7 @@ test('the seeded settings use a fictional webhook and the Slack format', () => {
   assert.equal(demo.settings.webhookFormat, 'slack');
   assert.match(demo.settings.webhookUrl, /^https:\/\/hooks\.example\.com\//);
   assert.equal(demo.settings.webhookSecret, '');
+  assert.equal(demo.settings.webhookBackfillCount, 30);
 });
 
 test('demo.js stays free of browser globals', () => {

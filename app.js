@@ -1,6 +1,8 @@
 import * as store from './db.js';
 import { resolve, webhookPayload } from './normalize.js';
 import { intervalSecondsFromSettings, splitInterval, parseIntervalInput } from './lib/polling.js';
+import { mergeSettingsSection, WEBHOOK_FORMATS, webhookReady } from './lib/settings.js';
+import { clampBackfillCount } from './lib/webhook.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -584,15 +586,25 @@ function paintInterval(seconds) {
 async function loadSettings() {
   const { settings = {} } = await chrome.storage.local.get('settings');
   const s = { overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
-  paintInterval(intervalSecondsFromSettings(settings));
+  paintSyncSection(s);
+  paintWebhookSection(s);
+  renderSample();
+}
+
+function paintSyncSection(s) {
+  paintInterval(intervalSecondsFromSettings(s));
   $('sOverlap').value = s.overlapHours;
+}
+
+function paintWebhookSection(s) {
   $('sWhEnabled').checked = s.webhookEnabled;
   $('sWhUrl').value = s.webhookUrl;
   $('sWhSecret').value = s.webhookSecret;
-  s.webhookFormat = ['full', 'chat', 'slack'].includes(s.webhookFormat) ? s.webhookFormat : 'full';
-  $('sWhFormat').value = s.webhookFormat;
+  const format = WEBHOOK_FORMATS.includes(s.webhookFormat) ? s.webhookFormat : 'full';
+  $('sWhFormat').value = format;
   $('sWhBackfill').checked = s.webhookIncludeBackfill;
-  renderSample();
+  $('sWhBackfillCount').value = clampBackfillCount(s.webhookBackfillCount);
+  $('sWhBackfillNow').disabled = !webhookReady(s);
 }
 
 function renderSample() {
@@ -632,11 +644,32 @@ async function renderSettingsInfo() {
     : `Continues automatically · next page ${backfill.nextPage || 1}.`;
 }
 
-function msg(text, bad = false) { const m = $('sMsg'); m.textContent = text; m.style.color = bad ? 'var(--err)' : ''; }
+function msg(text, bad = false, target = $('sMsg')) {
+  target.textContent = text;
+  target.style.color = bad ? 'var(--err)' : '';
+}
 
-async function saveSettings() {
+// Each card saves only its own fields into the stored object. `mergeSettingsSection`
+// keeps the other card untouched, and only the saved card is repainted, so an
+// unsaved edit in the other card stays in the form.
+async function saveSyncSettings() {
   const interval = parseIntervalInput($('sPollMin').value, $('sPollSec').value);
-  if (interval.error) return msg(interval.error, true);
+  if (interval.error) return msg(interval.error, true, $('sSyncMsg'));
+  const { settings: stored = {} } = await chrome.storage.local.get('settings');
+  const settings = mergeSettingsSection(stored, 'sync', {
+    pollSeconds: interval.seconds,
+    overlapHours: $('sOverlap').value,
+  });
+  await chrome.storage.local.set({ settings });
+  paintSyncSection(settings);
+  await send({ type: 'settingsChanged' });
+  return msg('Sync settings saved.', false, $('sSyncMsg'));
+}
+
+async function saveWebhookSettings() {
+  // A webhook save asks Chrome for the host permission. The request must run
+  // before the first await so the click is still the user gesture; everything
+  // that reads storage or posts the message follows it.
   const url = $('sWhUrl').value.trim();
   const enabled = $('sWhEnabled').checked;
   if (url) {
@@ -648,16 +681,17 @@ async function saveSettings() {
   } else if (enabled) {
     return msg('Add a webhook URL first.', true);
   }
-  const settings = {
-    pollSeconds: interval.seconds,
-    overlapHours: Math.min(24, Math.max(0.5, parseFloat($('sOverlap').value) || 2)),
+  const { settings: stored = {} } = await chrome.storage.local.get('settings');
+  const settings = mergeSettingsSection(stored, 'webhook', {
     webhookEnabled: enabled, webhookUrl: url, webhookSecret: $('sWhSecret').value,
     webhookFormat: $('sWhFormat').value, webhookIncludeBackfill: $('sWhBackfill').checked,
-  };
+    webhookBackfillCount: clampBackfillCount($('sWhBackfillCount').value),
+  });
   await chrome.storage.local.set({ settings });
-  paintInterval(interval.seconds);
+  paintWebhookSection(settings);
+  renderSample();
   await send({ type: 'settingsChanged' });
-  msg('Saved.');
+  msg('Webhook settings saved.');
 }
 
 // ---------- Wiring ----------
@@ -697,12 +731,28 @@ document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => showView(t.d
 document.addEventListener('click', (e) => { const m = document.querySelector('.menu'); if (m.open && !m.contains(e.target)) m.open = false; });
 
 $('syncNow').onclick = () => send({ type: 'sync' });
-$('sSave').onclick = saveSettings;
+$('sSaveSync').onclick = saveSyncSettings;
+$('sSaveWebhook').onclick = saveWebhookSettings;
 $('sWhFormat').onchange = renderSample;
 $('sTest').onclick = async () => {
   msg('Sending…');
   const r = await send({ type: 'testWebhook' });
   r?.ok ? msg(`Test delivered (HTTP ${r.status}).`) : msg(`Test failed: ${r?.error || 'unknown error'}. Save settings first if you changed the URL.`, true);
+};
+$('sWhBackfillNow').onclick = async () => {
+  const btn = $('sWhBackfillNow');
+  btn.disabled = true;
+  msg('Queueing…');
+  try {
+    const r = await send({ type: 'backfillWebhook', count: +$('sWhBackfillCount').value });
+    if (!r?.ok) msg(`Backfill failed: ${r?.error || 'unknown error'}. Save the webhook settings first if you changed the URL.`, true);
+    else if (!r.queued) msg('Nothing to backfill.');
+    else msg(`Queued ${r.queued} · sent ${r.sent} · ${r.pending} pending${r.pending ? ' (retrying)' : ''}.`);
+  } catch (e) {
+    msg(`Backfill failed: ${e.message || e}.`, true);
+  }
+  btn.disabled = !webhookReady({ webhookEnabled: $('sWhEnabled').checked, webhookUrl: $('sWhUrl').value });
+  renderSettingsInfo();
 };
 $('sDemoLoad').onclick = async () => {
   if (!confirm('Replace this profile’s stored alerts, Sync log and webhook settings with sample data? Real alerts are deleted and cannot be restored. GridPane is not affected.')) return;
