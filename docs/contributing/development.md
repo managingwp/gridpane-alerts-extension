@@ -18,11 +18,11 @@ node scripts/flatten-screenshots.mjs store/screenshots  # strip Chrome's alpha f
 
 ## Sample data
 
-Settings → **Sample data** → **Load sample data** seeds the archive with 24 fictional alerts, the matching server and site names, nine Sync-log runs and a Slack webhook preview, all built by `demo.js` from timestamps relative to the moment you press it. Loading replaces this profile's alerts, Sync log and webhook settings, pauses automatic sync until **Remove sample data**, and keeps the seeded badge count. Removing restores the webhook settings captured before the load and resets the cursor; the alerts and the log are deleted, not restored. Nothing is sent to GridPane or to the webhook, and `node --test` covers the fixture shape in `tests/demo.test.mjs`. The store capture steps are in `store/screenshots/README.md`.
+Settings → **Sample data** → **Load sample data** seeds the archive with 24 fictional alerts, the matching server and site names, nine Sync-log runs and a Slack webhook preview, all built by `demo.js` from timestamps relative to the moment you press it. Loading replaces this profile's alerts, Sync log and webhook settings, pauses automatic sync until **Remove sample data**, and keeps the seeded badge count. Removing restores the webhook settings captured before the load — updated with anything saved while the sample was loaded — and resets the cursor; the alerts and the log are deleted, not restored. Nothing is sent to GridPane or to the webhook, and `node --test` covers the fixture shape in `tests/demo.test.mjs`. The store capture steps are in `store/screenshots/README.md`.
 
 ## Tests
 
-`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, `lib/polling.js`, `lib/settings.js`, `lib/webhook.js`, the Slack payload, the sample fixtures, the packager, the screenshot codec) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
+`node --test` runs the pure helpers (`lib/scan.js`, `lib/tabs.js`, `lib/polling.js`, `lib/settings.js`, `lib/settings-backup.js`, `lib/webhook.js`, the Slack payload, the sample fixtures, the packager, the screenshot codec) and the manifest checks. Chrome APIs are not exercised; the UI and sync checks are manual and tracked in the plans todo list.
 
 ## Code map
 
@@ -34,7 +34,7 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 | `normalize.js` | alert normalisation and webhook/Slack payloads |
 | `lib/scan.js`, `lib/tabs.js` | pure cursor/backfill helpers and the GridPane tab checks |
 | `lib/polling.js` | pure interval, scheduler-choice, backfill-pacing and sync-log rules |
-| `lib/settings.js`, `lib/webhook.js` | pure Settings section merges, the overlap clamp, and the webhook backfill count/selection |
+| `lib/settings.js`, `lib/settings-backup.js`, `lib/webhook.js` | pure Settings section merges and diffing, the overlap clamp, the settings backup format, and the webhook backfill count/selection |
 | `timer.html`, `timer.js`, `timer-worker.js` | offscreen timer document and its worker, used below a one-minute interval |
 | `scripts/package.mjs` | packaging and manifest/store validation |
 | `scripts/png.mjs`, `scripts/flatten-screenshots.mjs` | PNG codec and the store screenshot alpha flattener |

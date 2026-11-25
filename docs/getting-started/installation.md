@@ -22,7 +22,9 @@ An unpacked install only stays enabled while Developer mode is on: Chrome disabl
 
 ## Updating
 
-Replace the folder's files and click the reload icon on the extension card; your stored alerts are kept. A Web Store install updates on its own.
+Upgrade in place: unzip the new release over the folder Chrome already loads, or replace only its files, then click the reload icon on the extension card. Your archive, Sync log and settings are kept. A Web Store install updates on its own.
+
+Chrome identifies an unpacked extension by its folder path, so moving it to a new folder makes a different extension with empty storage. If you must move it — or you are switching profiles — open Settings → **Data** → **Back up settings** first and restore the file afterwards. The backup contains the webhook URL and signing secret in plain text.
 
 ## Next step
 

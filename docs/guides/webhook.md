@@ -3,7 +3,9 @@ title: Webhook delivery
 description: Send every new alert to your own endpoint as full JSON, chat text or a Slack Block Kit card, with de-duplication headers and an optional HMAC signature.
 ---
 
-Settings → Webhook. Saving asks Chrome for permission to call that host. Each card saves on its own: **Save sync settings** stores the interval and catch-up overlap, and **Save webhook settings** stores this card. Saving one does not change the other card's stored values, and an unsaved edit in the other card stays in the form. A denied host permission stores nothing.
+Settings → Webhook. Saving asks Chrome for permission to call that host. Each card saves on its own: **Save sync settings** stores the interval and catch-up overlap, and **Save webhook settings** stores this card. Saving one does not change the other card's stored values, and an unsaved edit in the other card stays in the form. A save writes only the fields you changed, so pressing Save on an untouched card changes nothing.
+
+The webhook details are stored even if you decline the permission prompt; the card then warns that Chrome has not allowed requests to that host, and pressing Save again asks once more. Chrome's permission prompt only appears when the details are saved, never on a page that has not finished loading them.
 
 ## Full JSON
 
@@ -46,6 +48,12 @@ Severity is a best guess from the alert title and icon (GridPane doesn't send on
 ## Send stored alerts again (backfill)
 
 **Backfill** in the Webhook card re-sends the newest N alerts already in the local archive — 30 by default, 1–500 — oldest first. It is a replay for a new endpoint, so alerts delivered before are sent again; key your receiver on `X-GPAlerts-Id` to ignore duplicates. The saved, enabled webhook is required, and the batch uses the same outbox, format, signature and retry/backoff as live alerts. It reads only the local archive, so no GridPane tab is needed. A backfill that meets a failing endpoint leaves the rest in the outbox, reports how many are pending, and they retry on the usual backoff.
+
+## Back up and restore the settings
+
+Settings → **Data** → **Back up settings** downloads `gridpane-alerts-settings-YYYY-MM-DD.json`, a local copy of the Sync and Webhook cards. **Restore settings** reads one back, asks for confirmation, and replaces both cards without touching the stored alerts. Use it before moving the extension to a new folder, switching Chrome profiles, or reinstalling.
+
+The file contains the webhook URL and its signing secret in plain text. Keep it somewhere you would keep a password, and delete it when it is no longer needed.
 
 ## Using the webhook as a storage destination
 

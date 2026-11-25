@@ -63,6 +63,8 @@ Collection cannot move to a server. GridPane authenticates with the browser sess
 
 Database `gp-alerts` (version 2) keeps the alerts, the outbox, the key-value state and the sync log. It survives a page reload and an extension update, and it is destroyed by an uninstall. No other tool can read `chrome-extension://` storage directly, which is why the export and the webhook exist.
 
+Settings live in `chrome.storage.local` beside the archive. They survive an in-place extension update, but they belong to the extension's identity: an unpacked install loaded from a different folder is a different extension with empty storage. Settings → Data → **Back up settings** writes a local JSON copy of the Sync and Webhook cards, including the webhook URL and signing secret in plain text, and **Restore settings** reads it back.
+
 The outbox is already a delivery engine: oldest-first, per-record backoff, `X-GPAlerts-Id` for de-duplication, an optional HMAC signature. Any remote destination reuses it.
 
 ### Storage options

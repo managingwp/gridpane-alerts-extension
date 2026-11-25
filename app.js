@@ -1,8 +1,9 @@
 import * as store from './db.js';
 import { resolve, webhookPayload } from './normalize.js';
 import { intervalSecondsFromSettings, splitInterval, parseIntervalInput } from './lib/polling.js';
-import { mergeSettingsSection, WEBHOOK_FORMATS, webhookReady } from './lib/settings.js';
+import { defaultSettings, mergeSettingsSection, settingsDiff, mergeDemoSnapshot, WEBHOOK_FORMATS, webhookReady } from './lib/settings.js';
 import { clampBackfillCount } from './lib/webhook.js';
+import { buildSettingsBackup, parseSettingsBackup } from './lib/settings-backup.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -45,6 +46,9 @@ const ui = {
   filtered: [],
   group: pref('group') === '1',
   groupMode: pref('groupMode') || 'type',
+  // The values each settings card last painted. A save writes only the fields
+  // that differ from this snapshot, so an untouched form is a no-op.
+  painted: { sync: {}, webhook: {} },
 };
 
 function pref(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -583,17 +587,44 @@ function paintInterval(seconds) {
   $('sPollSec').value = poll.seconds;
 }
 
+// Settings must be painted from storage before anything can save them. A save
+// clicked against the un-painted form writes the empty HTML defaults over the
+// stored record, which is how a reload or an extension upgrade could wipe the
+// webhook details while still reporting that they were saved.
+let settingsPainted = false;
+
+function setSaveButtons(enabled) {
+  $('sSaveSync').disabled = !enabled;
+  $('sSaveWebhook').disabled = !enabled;
+}
+
 async function loadSettings() {
-  const { settings = {} } = await chrome.storage.local.get('settings');
-  const s = { overlapHours: 2, webhookEnabled: false, webhookUrl: '', webhookSecret: '', webhookFormat: 'full', webhookIncludeBackfill: false, ...settings };
+  let settings = {};
+  try {
+    ({ settings = {} } = await chrome.storage.local.get('settings'));
+  } catch (e) {
+    settingsPainted = false;
+    setSaveButtons(false);
+    const text = `Couldn’t read the saved settings, so saving is disabled: ${e?.message || e}`;
+    msg(text, true, $('sSyncMsg'));
+    msg(text, true, $('sMsg'));
+    return;
+  }
+  const s = { ...defaultSettings(), ...settings };
   paintSyncSection(s);
   paintWebhookSection(s);
+  settingsPainted = true;
+  setSaveButtons(true);
+  const warning = await webhookPermissionWarning(s);
+  if (warning) msg(warning, true);
   renderSample();
 }
 
 function paintSyncSection(s) {
-  paintInterval(intervalSecondsFromSettings(s));
+  const pollSeconds = intervalSecondsFromSettings(s);
+  paintInterval(pollSeconds);
   $('sOverlap').value = s.overlapHours;
+  ui.painted.sync = { pollSeconds, overlapHours: s.overlapHours };
 }
 
 function paintWebhookSection(s) {
@@ -605,6 +636,32 @@ function paintWebhookSection(s) {
   $('sWhBackfill').checked = s.webhookIncludeBackfill;
   $('sWhBackfillCount').value = clampBackfillCount(s.webhookBackfillCount);
   $('sWhBackfillNow').disabled = !webhookReady(s);
+  ui.painted.webhook = {
+    webhookEnabled: !!s.webhookEnabled,
+    webhookUrl: String(s.webhookUrl || ''),
+    webhookSecret: String(s.webhookSecret || ''),
+    webhookFormat: format,
+    webhookIncludeBackfill: !!s.webhookIncludeBackfill,
+    webhookBackfillCount: clampBackfillCount(s.webhookBackfillCount),
+  };
+}
+
+// A saved, enabled webhook can still be missing Chrome's host permission: the
+// save stores the details whatever the prompt does, so the card says when
+// delivery will fail. Read-only, and kept out of the post-save repaint so it
+// cannot overwrite the save message.
+async function webhookPermissionWarning(s) {
+  if (!webhookReady(s)) return '';
+  // Sample data points at a fictional endpoint the user never entered, so a
+  // missing grant there is expected and not worth an alarm.
+  const { demoMode } = await chrome.storage.local.get('demoMode');
+  if (demoMode?.active) return '';
+  let u;
+  try { u = new URL(s.webhookUrl); } catch { return ''; }
+  try {
+    const granted = await chrome.permissions.contains({ origins: [`${u.origin}/*`] });
+    return granted ? '' : `Chrome has not allowed requests to ${u.host} yet — press Save webhook settings and approve the prompt.`;
+  } catch { return ''; }
 }
 
 function renderSample() {
@@ -649,48 +706,79 @@ function msg(text, bad = false, target = $('sMsg')) {
   target.style.color = bad ? 'var(--err)' : '';
 }
 
-// Each card saves only its own fields into the stored object. `mergeSettingsSection`
-// keeps the other card untouched, and only the saved card is repainted, so an
-// unsaved edit in the other card stays in the form.
+// While sample data is loaded, `exitDemo` restores the settings snapshot taken
+// when it was loaded. Fold a save into that snapshot so removing the sample
+// cannot put an older record back over what the user just saved.
+async function rememberDemoSettings(patch) {
+  const { demoMode } = await chrome.storage.local.get('demoMode');
+  const next = mergeDemoSnapshot(demoMode, patch);
+  if (next !== demoMode) await chrome.storage.local.set({ demoMode: next });
+}
+
+// Each card saves only its own changed fields into the stored object.
+// `mergeSettingsSection` keeps the other card untouched, and only the saved card
+// is repainted, so an unsaved edit in the other card stays in the form. Both
+// saves share this write, including the demo snapshot and the background notice.
+async function persistSettingsPatch(section, patch) {
+  const { settings: stored = {} } = await chrome.storage.local.get('settings');
+  const settings = mergeSettingsSection(stored, section, patch);
+  await chrome.storage.local.set({ settings });
+  await rememberDemoSettings(patch);
+  await send({ type: 'settingsChanged' });
+  return settings;
+}
+
 async function saveSyncSettings() {
+  if (!settingsPainted) return msg('Settings are still loading. Try again in a moment.', true, $('sSyncMsg'));
   const interval = parseIntervalInput($('sPollMin').value, $('sPollSec').value);
   if (interval.error) return msg(interval.error, true, $('sSyncMsg'));
-  const { settings: stored = {} } = await chrome.storage.local.get('settings');
-  const settings = mergeSettingsSection(stored, 'sync', {
+  const patch = settingsDiff(ui.painted.sync, {
     pollSeconds: interval.seconds,
     overlapHours: $('sOverlap').value,
-  });
-  await chrome.storage.local.set({ settings });
+  }, 'sync');
+  if (!Object.keys(patch).length) return msg('No changes to save.', false, $('sSyncMsg'));
+  const settings = await persistSettingsPatch('sync', patch);
   paintSyncSection(settings);
-  await send({ type: 'settingsChanged' });
   return msg('Sync settings saved.', false, $('sSyncMsg'));
 }
 
 async function saveWebhookSettings() {
+  if (!settingsPainted) return msg('Settings are still loading. Try again in a moment.', true);
   // A webhook save asks Chrome for the host permission. The request must run
-  // before the first await so the click is still the user gesture; everything
-  // that reads storage or posts the message follows it.
+  // before the first await so the click is still the user gesture. Its outcome
+  // never discards the details: the card is written below either way.
   const url = $('sWhUrl').value.trim();
   const enabled = $('sWhEnabled').checked;
+  const permission = { requested: false, granted: true, host: '', error: '' };
   if (url) {
     let u;
     try { u = new URL(url); } catch { return msg('That webhook URL isn’t valid.', true); }
     if (!/^https?:$/.test(u.protocol)) return msg('Webhook URL must start with http:// or https://', true);
-    const granted = await chrome.permissions.request({ origins: [`${u.origin}/*`] });
-    if (!granted) return msg(`Chrome permission for ${u.host} was declined, so the webhook can’t be called.`, true);
+    permission.requested = true;
+    permission.granted = false;
+    permission.host = u.host;
+    try { permission.granted = await chrome.permissions.request({ origins: [`${u.origin}/*`] }); }
+    catch (e) { permission.error = String(e?.message || e); }
   } else if (enabled) {
     return msg('Add a webhook URL first.', true);
   }
-  const { settings: stored = {} } = await chrome.storage.local.get('settings');
-  const settings = mergeSettingsSection(stored, 'webhook', {
+  const patch = settingsDiff(ui.painted.webhook, {
     webhookEnabled: enabled, webhookUrl: url, webhookSecret: $('sWhSecret').value,
     webhookFormat: $('sWhFormat').value, webhookIncludeBackfill: $('sWhBackfill').checked,
-    webhookBackfillCount: clampBackfillCount($('sWhBackfillCount').value),
-  });
-  await chrome.storage.local.set({ settings });
-  paintWebhookSection(settings);
-  renderSample();
-  await send({ type: 'settingsChanged' });
+    webhookBackfillCount: $('sWhBackfillCount').value,
+  }, 'webhook');
+  const wrote = Object.keys(patch).length > 0;
+  if (wrote) {
+    const settings = await persistSettingsPatch('webhook', patch);
+    paintWebhookSection(settings);
+    renderSample();
+  }
+  const saved = wrote ? ' The webhook details are saved.' : '';
+  if (permission.error) return msg(`Chrome rejected the permission request: ${permission.error}.${saved}`, true);
+  if (permission.requested && !permission.granted) {
+    return msg(`Chrome has not allowed requests to ${permission.host} yet — press Save again and approve the prompt.${saved}`, true);
+  }
+  if (!wrote) return msg('No changes to save.');
   msg('Webhook settings saved.');
 }
 
@@ -700,7 +788,11 @@ function showView(name) {
   $('view-alerts').hidden = name !== 'alerts';
   $('view-settings').hidden = name !== 'settings';
   $('view-log').hidden = name !== 'log';
-  if (name === 'settings') { renderSettingsInfo(); renderSample(); }
+  if (name === 'settings') {
+    renderSettingsInfo();
+    renderSample();
+    if (!settingsPainted) msg('Settings are still loading…', false, $('sMsg'));
+  }
   if (name === 'log') renderLog();
 }
 
@@ -821,6 +913,35 @@ $('sGapAudit').onclick = async () => {
   const newest = r.missing.slice(0, 3).map((m) => `${m.title} (${new Date(m.created_at * 1000).toLocaleString()})`).join('; ');
   info.textContent = `${r.missingCount.toLocaleString()} alert${r.missingCount === 1 ? '' : 's'} on GridPane are not stored (${scope}), newest: ${newest}. Fill older history to collect them.`;
 };
+$('sBackup').onclick = async () => {
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  const backup = buildSettingsBackup(settings, Date.now());
+  const name = `gridpane-alerts-settings-${new Date().toISOString().slice(0, 10)}.json`;
+  download(name, 'application/json', JSON.stringify(backup, null, 2));
+  msg('Settings backup downloaded.', false, $('sDataMsg'));
+};
+$('sRestore').onclick = () => $('sRestoreFile').click();
+$('sRestoreFile').onchange = async () => {
+  const file = $('sRestoreFile').files?.[0];
+  $('sRestoreFile').value = '';
+  if (!file) return;
+  let text;
+  try { text = await file.text(); } catch (e) { return msg(`Couldn’t read that file: ${e?.message || e}.`, true, $('sDataMsg')); }
+  const parsed = parseSettingsBackup(text);
+  if (!parsed.ok) return msg(parsed.error, true, $('sDataMsg'));
+  const exported = parsed.exported_at ? new Date(parsed.exported_at) : null;
+  const when = exported && !Number.isNaN(exported.getTime()) ? exported.toLocaleString() : 'an unknown date';
+  const secret = parsed.settings.webhookSecret ? ' It includes the signing secret.' : '';
+  if (!confirm(`Replace the Sync and Webhook settings with the backup from ${when}?${secret} Stored alerts are not touched.`)) return;
+  const { settings: stored = {} } = await chrome.storage.local.get('settings');
+  const settings = { ...stored, ...parsed.settings };
+  await chrome.storage.local.set({ settings });
+  await rememberDemoSettings(parsed.settings);
+  await loadSettings();
+  await renderSettingsInfo();
+  await send({ type: 'settingsChanged' });
+  msg('Settings restored.', false, $('sDataMsg'));
+};
 $('sWipe').onclick = async () => {
   if (!confirm('Delete every stored alert from this browser? GridPane itself is not affected.')) return;
   const { demoMode } = await chrome.storage.local.get('demoMode');
@@ -846,7 +967,10 @@ chrome.storage.onChanged.addListener((changes) => {
 setInterval(renderStatus, 30000);
 
 renderColMenu();
-await load();
+// Settings paint first: the archive can take seconds to read, and the cards
+// must never be saveable against the empty form while it does.
 await loadSettings();
+await load();
+renderSample();
 await renderStatus();
 send({ type: 'seen' });

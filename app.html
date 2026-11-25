@@ -113,6 +113,10 @@
           <span id="sSyncMsg" class="muted"></span>
         </div>
         <div class="actions">
+          <button id="sSaveSync" class="btn" disabled>Save sync settings</button>
+          <span id="sSyncMsg" class="muted"></span>
+        </div>
+        <div class="actions">
           <button id="sLookups" class="btn ghost">Refresh server &amp; site names</button>
         </div>
         <div class="actions">
@@ -147,12 +151,12 @@
         </label>
         <label class="check"><input id="sWhBackfill" type="checkbox"> Also send alerts found during a full history import</label>
         <div class="actions">
-          <button id="sSaveWebhook" class="btn">Save webhook settings</button>
+          <button id="sSaveWebhook" class="btn" disabled>Save webhook settings</button>
           <button id="sTest" class="btn ghost">Send test</button>
           <label class="row">Send the last
             <input id="sWhBackfillCount" type="number" min="1" max="500" step="1" aria-label="Alerts to backfill"> stored alerts
           </label>
-          <button id="sWhBackfillNow" class="btn ghost">Backfill</button>
+          <button id="sWhBackfillNow" class="btn ghost" disabled>Backfill</button>
           <span id="sMsg" class="muted"></span>
         </div>
         <p class="muted">Re-sends alerts already delivered, so a new endpoint starts with recent history. De-duplicate on <code>X-GPAlerts-Id</code>; 500 is the most one backfill sends.</p>
@@ -181,6 +185,13 @@
       <div class="card danger">
         <h2>Data</h2>
         <p class="muted">Everything is stored locally in this browser profile (IndexedDB). Uninstalling the extension deletes it, so export first if you want a copy.</p>
+        <div class="actions">
+          <button id="sBackup" class="btn ghost">Back up settings</button>
+          <button id="sRestore" class="btn ghost">Restore settings</button>
+          <input id="sRestoreFile" type="file" accept="application/json,.json" hidden>
+          <span id="sDataMsg" class="muted"></span>
+        </div>
+        <p class="muted">The settings file is a local JSON copy of the Sync and Webhook cards. It contains the webhook URL and signing secret in plain text.</p>
         <button id="sWipe" class="btn danger">Delete all stored alerts</button>
       </div>
     </section>

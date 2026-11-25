@@ -41,6 +41,7 @@ This data is kept in Chrome's IndexedDB and extension storage, inside your brows
 Data stays until you remove it:
 
 - **Export first.** The archive page exports the current view as CSV or JSON.
+- **Back up settings.** Settings → Data → **Back up settings** writes a local JSON copy of the Sync and Webhook cards. It contains the webhook URL and signing secret in plain text, so keep it somewhere you would keep a password.
 - **Delete the archive** from Settings, which clears the stored alerts, the cursor, the sync log and the cached names.
 - **Uninstall the extension**, which removes all of its storage from your browser profile.
 
