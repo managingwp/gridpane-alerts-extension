@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -44,6 +44,19 @@ test('collectFiles refuses a tree that is missing a runtime file', () => {
   } finally {
     rmSync(empty, { recursive: true, force: true });
   }
+});
+
+test('every local import in a runtime file resolves inside the package', () => {
+  const names = new Set(files.map((file) => file.name));
+  const pattern = /(?:import|export)[^'"\n]*?from\s*['"](\.\.?\/[^'"]+)['"]/g;
+  const missing = [];
+  for (const file of files.filter((entry) => entry.name.endsWith('.js'))) {
+    for (const match of file.data.toString('utf8').matchAll(pattern)) {
+      const target = join(dirname(file.name), match[1]);
+      if (!names.has(target)) missing.push(`${file.name} -> ${match[1]}`);
+    }
+  }
+  assert.deepEqual(missing, []);
 });
 
 test('pngSize reads the declared dimensions', () => {

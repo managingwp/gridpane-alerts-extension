@@ -30,6 +30,7 @@ export const RUNTIME_FILES = [
   'demo.js',
   'lib/scan.js',
   'lib/tabs.js',
+  'lib/polling.js',
   'app.html',
   'app.js',
   'app.css',
