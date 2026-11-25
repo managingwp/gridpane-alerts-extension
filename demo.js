@@ -16,7 +16,6 @@ import { DEFAULT_BACKFILL_COUNT } from './lib/webhook.js';
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const TEAM_ID = 1;
-const OVERLAP_SECONDS = 2 * 3600;
 
 const CREATORS = [
   { name: 'Demo Operator', email: 'demo@example.com' },
@@ -313,7 +312,7 @@ export function buildDemo(now = Date.now()) {
       notes: r.notes,
       cursorFrom: from ? { id: from.id, created_at: from.created_at } : null,
       cursorTo: to ? { id: to.id, created_at: to.created_at } : null,
-      floor: from ? from.created_at - OVERLAP_SECONDS : 0,
+      catchUpPages: 2,
       capped: false,
       backfillFrom: r.kind === 'history' ? 2 : null,
       backfillTo: r.kind === 'history' ? 21 : null,
@@ -340,7 +339,7 @@ export function buildDemo(now = Date.now()) {
 
   const settings = {
     pollSeconds: DEFAULT_INTERVAL_SECONDS,
-    overlapHours: 2,
+    catchUpPages: 2,
     webhookEnabled: true,
     webhookUrl: 'https://hooks.example.com/services/demo',
     webhookSecret: '',

@@ -10,10 +10,10 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 - **Reads the notification bell with your session.** `GET https://my.gridpane.com/notifications/recent?page=N`, the same endpoint the bell uses; it never marks an alert as read (`background.js`).
 - **Scheduled checks.** Every 5 minutes by default, 15 seconds to 24 hours in Settings. Intervals under a minute run from a worker in an offscreen document, because published alarms cannot repeat faster than 30 seconds (`lib/polling.js`, `background.js`, `timer.js`).
 - **Boundary probe.** Each check reads from the newest alert to the last alert stored by the previous check, then reads the page after the last stored alert. It stops when that page is already archived and keeps going only while a page adds something new (`lib/scan.js`, `background.js`).
-- **Catch-up overlap.** A late batch found below the last stored alert is followed no further than the configured overlap — 2 hours by default, 0.5–24 in Settings. A late alert deeper than the confirmation page is left to the gap audit (`lib/scan.js`, `background.js`).
-- **Automatic backfill.** Up to 20 older pages per automatic check, paced at about one page per 15 seconds, and up to 100 per manual run, resumable from `state.backfill` (`lib/polling.js`, `background.js`).
+- **Late-batch catch-up.** A late batch found below the last stored alert is followed no further than the configured page budget — 2 pages by default, 1–10 in Settings. A late alert deeper than that is left to the gap audit (`lib/scan.js`, `background.js`).
+- **Manual history import.** Off by default. **Fill older history** starts a resumable pass below the newest pages: up to 100 pages in the manual run, then about 20 pages per automatic check, paced at about one page per 15 seconds, resumable from `state.backfill` (`lib/polling.js`, `background.js`).
 - **Gap audit.** Walks up to 50 pages of the bell and reports what the archive is missing, newest first, with the pages covered and whether the cap was hit (`background.js`, Settings).
-- **GridPane tab preflight.** Every manual and automatic run, the backfill, the gap audit and the name refresh stop before the first request without an open `https://my.gridpane.com/` tab; the banner offers **Open GridPane** (`lib/tabs.js`, `background.js`).
+- **GridPane tab preflight.** Every manual and automatic run, the history import, the gap audit and the name refresh stop before the first request without an open `https://my.gridpane.com/` tab; the banner offers **Open GridPane** (`lib/tabs.js`, `background.js`).
 - **Retry on tab load.** Opening the tab after a no-tab check starts one automatic sync when it finishes loading, at most once per 30 seconds (`lib/tabs.js`, `background.js`).
 - **Rate-limit handling.** A short `Retry-After` is waited out; otherwise automatic checks pause for 5, 15, 30 then 60 minutes, resuming the same page. A shorter interval sends more checks; a routine check stays a page or two, while a backlog of new alerts takes the pages it needs (`background.js`).
 - **Name lookups.** Server and site names come from `/api/v1/servers` and `/api/v1/sites`, refreshed daily; names of deleted servers are kept (`background.js`).
@@ -39,7 +39,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 
 ## Operations
 
-- **Settings.** Check interval (15 seconds–24 hours), catch-up overlap, visible columns, webhook URL/format/secret, history forwarding, the last N stored alerts backfill, the outbox, the gap audit and the backfill controls; the Sync and Webhook cards save independently and write only changed fields, and a local JSON backup restores both cards without touching the archive (`app.html`, `app.js`, `lib/settings.js`, `lib/settings-backup.js`).
+- **Settings.** Check interval (15 seconds–24 hours), late-batch catch-up pages, visible columns, webhook URL/format/secret, history forwarding, the last N stored alerts backfill, the outbox, the gap audit and the history-import controls; the Sync and Webhook cards save independently and write only changed fields, and a local JSON backup restores both cards without touching the archive (`app.html`, `app.js`, `lib/settings.js`, `lib/settings-backup.js`).
 - **No build step.** `node --test` covers the pure helpers, the Slack payload and the packager; `scripts/package.mjs` builds and validates the zip (`tests/`, `scripts/package.mjs`).
 - **Manual install and release.** A release zip loads unpacked; a tag builds and attaches the same zip (`docs/contributing/release.md`).
 

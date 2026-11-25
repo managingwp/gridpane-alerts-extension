@@ -11,7 +11,7 @@ import { defaultSettings } from '../lib/settings.js';
 
 const STORED = {
   pollSeconds: 75,
-  overlapHours: 6,
+  catchUpPages: 6,
   webhookEnabled: true,
   webhookUrl: 'https://example.com/hooks/gridpane',
   webhookSecret: 's3cret',
@@ -46,13 +46,20 @@ test('a backup migrates a legacy pollMinutes interval to seconds', () => {
 test('a backup clamps values the Settings page would clamp', () => {
   const parsed = parseSettingsBackup(JSON.stringify({
     schema: 1,
-    settings: { pollSeconds: 1, overlapHours: 99, webhookBackfillCount: 501, webhookFormat: 'markdown' },
+    settings: { pollSeconds: 1, catchUpPages: 99, webhookBackfillCount: 501, webhookFormat: 'markdown' },
   }));
   assert.equal(parsed.ok, true);
   assert.equal(parsed.settings.pollSeconds, 15);
-  assert.equal(parsed.settings.overlapHours, 24);
+  assert.equal(parsed.settings.catchUpPages, 10);
   assert.equal(parsed.settings.webhookBackfillCount, 500);
   assert.equal(parsed.settings.webhookFormat, 'full');
+});
+
+test('a legacy overlapHours setting restores the 2-page default', () => {
+  const parsed = parseSettingsBackup(JSON.stringify({ schema: 1, settings: { overlapHours: 6 } }));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.settings.catchUpPages, 2);
+  assert.equal('overlapHours' in parsed.settings, false);
 });
 
 test('a backup keeps a present secret and an absent one stays empty', () => {
@@ -106,5 +113,5 @@ test('a backup with no settings object or no known key is refused', () => {
 
 test('normalizeSettingsRecord turns junk into a complete default record', () => {
   assert.deepEqual(normalizeSettingsRecord(), defaultSettings());
-  assert.deepEqual(normalizeSettingsRecord({ pollSeconds: 'nope', overlapHours: null }), defaultSettings());
+  assert.deepEqual(normalizeSettingsRecord({ pollSeconds: 'nope', catchUpPages: null }), defaultSettings());
 });

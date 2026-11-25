@@ -12,7 +12,7 @@ Not published yet — this section gets the listing link once the first version 
 1. Download `gridpane-alerts-<version>.zip` from the [latest release](https://github.com/managingwp/gridpane-alerts-extension/releases/latest) and unzip it somewhere permanent (Chrome loads the extension from that folder).
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and pick the unzipped folder.
-4. Pin the bell icon. The archive page opens automatically. The first sync stores the newest page of alerts, then starts the automatic backfill that pulls in the rest of the bell.
+4. Pin the bell icon. The archive page opens automatically. The first sync stores the newest page of alerts and starts tracking from there; older history is imported only when you press **Fill older history** in Settings.
 
 Keep a **my.gridpane.com tab open** while you use the extension: Chrome does not give the extension GridPane's session cookie, so alerts are read inside that tab. With no tab open, a check stops before making any request and the banner offers **Open GridPane**.
 
@@ -28,4 +28,4 @@ Chrome identifies an unpacked extension by its folder path, so moving it to a ne
 
 ## Next step
 
-[First run](./first-run.md) covers the first sync, the backfill and the status line.
+[First run](./first-run.md) covers the first sync, history import and the status line.

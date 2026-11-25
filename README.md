@@ -20,7 +20,7 @@
 **Documentation:** https://managingwp.github.io/gridpane-alerts-extension/
 
 <!-- BEGIN docs-index -->
-**Start here:** [Install](https://managingwp.github.io/gridpane-alerts-extension/getting-started/installation) · [First run](https://managingwp.github.io/gridpane-alerts-extension/getting-started/first-run) · [Sync, backfill and gaps](https://managingwp.github.io/gridpane-alerts-extension/guides/sync) · [Search and export](https://managingwp.github.io/gridpane-alerts-extension/guides/search-and-export) · [Webhook](https://managingwp.github.io/gridpane-alerts-extension/guides/webhook)
+**Start here:** [Install](https://managingwp.github.io/gridpane-alerts-extension/getting-started/installation) · [First run](https://managingwp.github.io/gridpane-alerts-extension/getting-started/first-run) · [Sync, history import and gaps](https://managingwp.github.io/gridpane-alerts-extension/guides/sync) · [Search and export](https://managingwp.github.io/gridpane-alerts-extension/guides/search-and-export) · [Webhook](https://managingwp.github.io/gridpane-alerts-extension/guides/webhook)
 
 **Reference:** [Features](https://managingwp.github.io/gridpane-alerts-extension/reference/features) · [Roadmap](https://managingwp.github.io/gridpane-alerts-extension/reference/roadmap) · [Collection and storage](https://managingwp.github.io/gridpane-alerts-extension/reference/collection-and-storage) · [Limits](https://managingwp.github.io/gridpane-alerts-extension/reference/limits)
 
@@ -31,13 +31,13 @@
 
 1. Install the extension: the Web Store listing when it opens, or a release zip loaded unpacked — see [Install](https://managingwp.github.io/gridpane-alerts-extension/getting-started/installation).
 2. Keep a **my.gridpane.com** tab open and stay signed in. Chrome does not give the extension GridPane's session cookie, so alerts are read inside that tab.
-3. Pin the bell icon. The first sync stores the newest page, then the automatic backfill pulls in the rest of the bell.
+3. Pin the bell icon. The first sync stores the newest page and starts tracking from there; older history is imported only when you press **Fill older history**.
 
 ## What it does
 
 - **Archives on a schedule.** Reads `GET https://my.gridpane.com/notifications/recent?page=N` with your session, every 5 minutes by default (15 seconds to 24 hours in Settings), and never marks anything as read. Each check stops at the last stored alert: it reads the page after the last stored alert once, and stops when that page is already archived.
 - **Finds anything.** Stores the full alert text in IndexedDB, with sortable columns, hover-to-copy for message, server and site, field-prefixed search, and CSV/JSON export of the filtered view.
-- **Backfills the bell.** Pulls in older pages automatically (up to 20 per check, 100 on demand) and audits the archive for gaps.
+- **Imports history on request.** Fills the bell only when you ask (up to 100 pages per run, then about 20 per check) and audits the archive for gaps.
 - **Forwards new alerts.** Posts full JSON, chat text or a Slack card to a webhook you choose, with an id header, an optional HMAC signature and an outbox that retries for an hour, and replays the last N stored alerts (30 by default) to a new endpoint. Settings back up to a local JSON file you can restore.
 
 ## Privacy

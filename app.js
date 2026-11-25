@@ -4,6 +4,7 @@ import { intervalSecondsFromSettings, splitInterval, parseIntervalInput } from '
 import { defaultSettings, mergeSettingsSection, settingsDiff, mergeDemoSnapshot, WEBHOOK_FORMATS, webhookReady } from './lib/settings.js';
 import { clampBackfillCount } from './lib/webhook.js';
 import { buildSettingsBackup, parseSettingsBackup } from './lib/settings-backup.js';
+import { backfillActive, clampCatchUpPages } from './lib/scan.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -494,7 +495,7 @@ async function renderStatus() {
     st.textContent = 'GridPane tab not open';
   } else if (state.status === 'error') {
     st.textContent = 'Sync error';
-  } else if (state.backfill && state.backfill.done === false) {
+  } else if (backfillActive(state.backfill)) {
     st.textContent = `Backfilling older alerts · next page ${state.backfill.nextPage || 1}`;
   } else if (state.lastSync) {
     st.textContent = `Synced ${ago(state.lastSync)}`;
@@ -522,13 +523,13 @@ async function renderStatus() {
   } else if (state.status === 'error' && !state.syncing) {
     banner.textContent = `Last sync failed: ${state.lastError}`;
     banner.hidden = false;
-  } else if (state.syncGap && !state.syncing) {
+  } else if (state.syncGap && !state.syncing && !backfillActive(state.backfill)) {
     const fill = el('button', { className: 'btn ghost small', textContent: 'Fill older history' });
     fill.addEventListener('click', () => {
       send({ type: 'importHistory' });
       setTimeout(renderStatus, 300);
     });
-    banner.replaceChildren('Older alerts are still being collected automatically, but the gap back to the last synced alert is large. ', fill, ' to catch up now.');
+    banner.replaceChildren('The last check hit its page limit before reaching the last stored alert, so newer alerts may be missing. ', fill, ' to catch up now.');
     banner.hidden = false;
   } else banner.hidden = true;
   $('syncNow').disabled = !!state.syncing;
@@ -623,8 +624,9 @@ async function loadSettings() {
 function paintSyncSection(s) {
   const pollSeconds = intervalSecondsFromSettings(s);
   paintInterval(pollSeconds);
-  $('sOverlap').value = s.overlapHours;
-  ui.painted.sync = { pollSeconds, overlapHours: s.overlapHours };
+  const catchUpPages = clampCatchUpPages(s.catchUpPages);
+  $('sCatchUpPages').value = catchUpPages;
+  ui.painted.sync = { pollSeconds, catchUpPages };
 }
 
 function paintWebhookSection(s) {
@@ -694,11 +696,13 @@ async function renderSettingsInfo() {
     ? `Sample data loaded · ${(demo.alerts || n).toLocaleString()} alerts · automatic sync paused.`
     : 'No sample data loaded.';
   const backfill = state.backfill || {};
+  const active = backfillActive(backfill);
   $('sHistory').disabled = busy;
-  $('sHistory').textContent = backfill.done === false ? `Continue backfill (page ${backfill.nextPage || 1})` : 'Fill older history';
+  $('sHistory').textContent = active ? `Continue backfill (page ${backfill.nextPage || 1})` : 'Fill older history';
   $('sHistoryInfo').textContent = state.syncing && state.syncMode === 'history' ? `Importing page ${state.syncPage}…`
-    : backfill.done ? 'Older history complete.'
-    : `Continues automatically · next page ${backfill.nextPage || 1}.`;
+    : active ? `Import in progress · next page ${backfill.nextPage || 1}.`
+    : backfill.userStarted && backfill.done ? 'Older history complete.'
+    : 'Older history is imported only when you ask.';
 }
 
 function msg(text, bad = false, target = $('sMsg')) {
@@ -734,7 +738,7 @@ async function saveSyncSettings() {
   if (interval.error) return msg(interval.error, true, $('sSyncMsg'));
   const patch = settingsDiff(ui.painted.sync, {
     pollSeconds: interval.seconds,
-    overlapHours: $('sOverlap').value,
+    catchUpPages: $('sCatchUpPages').value,
   }, 'sync');
   if (!Object.keys(patch).length) return msg('No changes to save.', false, $('sSyncMsg'));
   const settings = await persistSettingsPatch('sync', patch);
@@ -948,7 +952,7 @@ $('sWipe').onclick = async () => {
   if (demoMode?.active) await send({ type: 'exitDemo' });
   await store.clear('notifications'); await store.clear('outbox');
   const { state = {} } = await chrome.storage.local.get('state');
-  await chrome.storage.local.set({ state: { ...state, cursor: null, backfill: { nextPage: 1, done: false }, unseen: 0 } });
+  await chrome.storage.local.set({ state: { ...state, cursor: null, backfill: { nextPage: 1, done: true }, unseen: 0, syncGap: false } });
   await load(); await loadSettings(); renderSettingsInfo();
 };
 

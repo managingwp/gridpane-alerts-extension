@@ -103,7 +103,7 @@ test('the seeded state looks like a recent successful sync', () => {
 
 test('the seeded settings use a fictional webhook and the Slack format', () => {
   assert.equal(demo.settings.pollSeconds, 300);
-  assert.equal(demo.settings.overlapHours, 2);
+  assert.equal(demo.settings.catchUpPages, 2);
   assert.equal(demo.settings.webhookEnabled, true);
   assert.equal(demo.settings.webhookFormat, 'slack');
   assert.match(demo.settings.webhookUrl, /^https:\/\/hooks\.example\.com\//);

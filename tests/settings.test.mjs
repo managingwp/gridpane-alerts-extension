@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  clampOverlapHours,
   mergeDemoSnapshot,
   mergeSettingsSection,
   normalizeSettingsSection,
   settingsDiff,
   webhookReady,
 } from '../lib/settings.js';
+import { clampCatchUpPages } from '../lib/scan.js';
 
 const STORED = {
   pollSeconds: 75,
-  overlapHours: 6,
+  catchUpPages: 6,
   webhookEnabled: true,
   webhookUrl: 'https://example.com/hooks/gridpane',
   webhookSecret: 's3cret',
@@ -31,15 +31,15 @@ const PAINTED = {
 };
 
 test('a sync save keeps every stored webhook value', () => {
-  const next = mergeSettingsSection(STORED, 'sync', { pollSeconds: 300, overlapHours: '12' });
+  const next = mergeSettingsSection(STORED, 'sync', { pollSeconds: 300, catchUpPages: '4' });
   for (const key of Object.keys(STORED).filter((k) => k.startsWith('webhook'))) {
     assert.deepEqual(next[key], STORED[key], key);
   }
   assert.equal(next.pollSeconds, 300);
-  assert.equal(next.overlapHours, 12);
+  assert.equal(next.catchUpPages, 4);
 });
 
-test('a webhook save keeps the stored interval and overlap', () => {
+test('a webhook save keeps the stored interval and catch-up pages', () => {
   const next = mergeSettingsSection(STORED, 'webhook', {
     webhookEnabled: false,
     webhookUrl: '  https://hooks.example.com/new  ',
@@ -48,7 +48,7 @@ test('a webhook save keeps the stored interval and overlap', () => {
     webhookIncludeBackfill: false,
   });
   assert.equal(next.pollSeconds, STORED.pollSeconds);
-  assert.equal(next.overlapHours, STORED.overlapHours);
+  assert.equal(next.catchUpPages, STORED.catchUpPages);
   assert.equal(next.webhookEnabled, false);
   assert.equal(next.webhookUrl, 'https://hooks.example.com/new');
   assert.equal(next.webhookSecret, '');
@@ -56,9 +56,10 @@ test('a webhook save keeps the stored interval and overlap', () => {
   assert.equal(next.webhookIncludeBackfill, false);
 });
 
-test('a sync save drops a legacy pollMinutes', () => {
-  const next = mergeSettingsSection({ ...STORED, pollMinutes: 5 }, 'sync', { pollSeconds: 75, overlapHours: 2 });
+test('a sync save drops a legacy pollMinutes and overlapHours', () => {
+  const next = mergeSettingsSection({ ...STORED, pollMinutes: 5, overlapHours: 2 }, 'sync', { pollSeconds: 75, catchUpPages: 2 });
   assert.equal('pollMinutes' in next, false);
+  assert.equal('overlapHours' in next, false);
 });
 
 test('a key absent from the patch keeps its stored value', () => {
@@ -77,17 +78,17 @@ test('an empty patch keeps the record byte-for-byte', () => {
   assert.deepEqual(mergeSettingsSection(STORED, 'sync', {}), STORED);
 });
 
-test('clampOverlapHours bounds the window and keeps the default for junk', () => {
-  assert.equal(clampOverlapHours(0), 0.5);
-  assert.equal(clampOverlapHours(-1), 0.5);
-  assert.equal(clampOverlapHours(''), 2);
-  assert.equal(clampOverlapHours('nope'), 2);
-  assert.equal(clampOverlapHours(NaN), 2);
-  assert.equal(clampOverlapHours(0.5), 0.5);
-  assert.equal(clampOverlapHours('6'), 6);
-  assert.equal(clampOverlapHours(24), 24);
-  assert.equal(clampOverlapHours(25), 24);
-  assert.equal(clampOverlapHours(1, 3), 1);
+test('clampCatchUpPages bounds the page budget and keeps the default for junk', () => {
+  assert.equal(clampCatchUpPages(0), 1);
+  assert.equal(clampCatchUpPages(-1), 1);
+  assert.equal(clampCatchUpPages(''), 2);
+  assert.equal(clampCatchUpPages('nope'), 2);
+  assert.equal(clampCatchUpPages(NaN), 2);
+  assert.equal(clampCatchUpPages(2), 2);
+  assert.equal(clampCatchUpPages('6'), 6);
+  assert.equal(clampCatchUpPages(10), 10);
+  assert.equal(clampCatchUpPages(25), 10);
+  assert.equal(clampCatchUpPages(1, 3), 1);
 });
 
 test('an unknown webhook format falls back to full when it is supplied', () => {
@@ -115,21 +116,21 @@ test('a webhook save stores the backfill count and clamps it when supplied', () 
   assert.equal(mergeSettingsSection(STORED, 'webhook', { webhookBackfillCount: 501 }).webhookBackfillCount, 500);
   assert.equal(mergeSettingsSection(STORED, 'webhook', { webhookBackfillCount: 'nope' }).webhookBackfillCount, 30);
   assert.equal(mergeSettingsSection({ ...STORED, webhookBackfillCount: 10 }, 'webhook', {}).webhookBackfillCount, 10);
-  assert.equal(mergeSettingsSection(STORED, 'sync', { pollSeconds: 60, overlapHours: 2 }).webhookBackfillCount, 30);
+  assert.equal(mergeSettingsSection(STORED, 'sync', { pollSeconds: 60, catchUpPages: 2 }).webhookBackfillCount, 30);
 });
 
 test('normalizeSettingsSection keeps only the supplied keys', () => {
   assert.deepEqual(normalizeSettingsSection('webhook', {}), {});
   assert.deepEqual(normalizeSettingsSection('sync', {}), {});
   assert.deepEqual(normalizeSettingsSection('webhook', { webhookUrl: '  https://x.test  ' }), { webhookUrl: 'https://x.test' });
-  assert.deepEqual(normalizeSettingsSection('sync', { overlapHours: '99' }), { overlapHours: 24 });
+  assert.deepEqual(normalizeSettingsSection('sync', { catchUpPages: '99' }), { catchUpPages: 10 });
   assert.deepEqual(normalizeSettingsSection('sync', { pollSeconds: 1 }), { pollSeconds: 15 });
   assert.deepEqual(normalizeSettingsSection('other', { pollSeconds: 30 }), {});
 });
 
 test('settingsDiff reports no change for an untouched form', () => {
   assert.deepEqual(settingsDiff(PAINTED, { ...PAINTED }, 'webhook'), {});
-  assert.deepEqual(settingsDiff({ pollSeconds: 75, overlapHours: 2 }, { pollSeconds: 75, overlapHours: 2 }, 'sync'), {});
+  assert.deepEqual(settingsDiff({ pollSeconds: 75, catchUpPages: 2 }, { pollSeconds: 75, catchUpPages: 2 }, 'sync'), {});
 });
 
 test('settingsDiff compares normalised values', () => {
@@ -138,12 +139,12 @@ test('settingsDiff compares normalised values', () => {
     webhookUrl: '  https://example.com/hooks/gridpane  ',
     webhookBackfillCount: '30',
   }, 'webhook'), {});
-  assert.deepEqual(settingsDiff({ pollSeconds: 75, overlapHours: 2 }, { pollSeconds: '75', overlapHours: '2' }, 'sync'), {});
+  assert.deepEqual(settingsDiff({ pollSeconds: 75, catchUpPages: 2 }, { pollSeconds: '75', catchUpPages: '2' }, 'sync'), {});
 });
 
 test('settingsDiff returns only the edited key', () => {
   assert.deepEqual(settingsDiff(PAINTED, { ...PAINTED, webhookFormat: 'slack' }, 'webhook'), { webhookFormat: 'slack' });
-  assert.deepEqual(settingsDiff({ pollSeconds: 75, overlapHours: 2 }, { pollSeconds: 75, overlapHours: '6' }, 'sync'), { overlapHours: 6 });
+  assert.deepEqual(settingsDiff({ pollSeconds: 75, catchUpPages: 2 }, { pollSeconds: 75, catchUpPages: '6' }, 'sync'), { catchUpPages: 6 });
 });
 
 test('settingsDiff ignores fields the form did not supply', () => {

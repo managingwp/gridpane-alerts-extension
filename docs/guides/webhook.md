@@ -3,7 +3,7 @@ title: Webhook delivery
 description: Send every new alert to your own endpoint as full JSON, chat text or a Slack Block Kit card, with de-duplication headers and an optional HMAC signature.
 ---
 
-Settings → Webhook. Saving asks Chrome for permission to call that host. Each card saves on its own: **Save sync settings** stores the interval and catch-up overlap, and **Save webhook settings** stores this card. Saving one does not change the other card's stored values, and an unsaved edit in the other card stays in the form. A save writes only the fields you changed, so pressing Save on an untouched card changes nothing.
+Settings → Webhook. Saving asks Chrome for permission to call that host. Each card saves on its own: **Save sync settings** stores the interval and late-batch catch-up pages, and **Save webhook settings** stores this card. Saving one does not change the other card's stored values, and an unsaved edit in the other card stays in the form. A save writes only the fields you changed, so pressing Save on an untouched card changes nothing.
 
 The webhook details are stored even if you decline the permission prompt; the card then warns that Chrome has not allowed requests to that host, and pressing Save again asks once more. Chrome's permission prompt only appears when the details are saved, never on a page that has not finished loading them.
 

@@ -9,7 +9,7 @@ The full policy is published at [managingwp.io/policies/#gridpane-alerts-archive
 
 - The alerts: title, message, severity, timestamps, server and site metadata, and the person who triggered them.
 - Cached server and site names.
-- Settings: check interval, catch-up overlap, visible columns, webhook URL and format, history-forwarding choice.
+- Settings: check interval, late-batch catch-up pages, visible columns, webhook URL and format, history-forwarding choice.
 - The sync log, the cursor and a small debug buffer.
 
 Everything is kept in the extension's IndexedDB and `chrome.storage.local`, inside one Chrome profile. It is protected by the operating-system account and the Chrome profile, not encrypted by the extension.

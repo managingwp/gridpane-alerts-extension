@@ -1,17 +1,19 @@
 ---
 title: First run
-description: What the first sync does, how the automatic backfill fills the archive, and what the status line and badge mean.
+description: What the first sync does, how history import works, and what the status line and badge mean.
 ---
 
 ## The first sync
 
-Open the archive page from the toolbar. The first check reads the newest page of the GridPane notification bell, stores those alerts, and starts the automatic backfill that pulls in the older pages. The archive fills in over the next checks; **[Fill older history](../guides/sync.md#fill-older-history)** catches it up immediately.
+Open the archive page from the toolbar. The first check reads the newest page of the GridPane notification bell and stores those alerts. It does not read older pages: **[Fill older history](../guides/sync.md#fill-older-history)** imports them when you ask, and the next automatic checks continue the pass if it does not finish.
 
 ## The status line
 
-- *Backfilling older alerts · next page N* — the automatic backfill is still running.
+- *Backfilling older alerts · next page N* — a history import you started is still running.
 - *GridPane tab not open* — no `https://my.gridpane.com/` tab was found, so the check stopped before the first request. The banner offers **Open GridPane**.
 - *Not signed in* — the GridPane session is missing or expired; sign in and run a check.
+
+A gap banner appears only when the new-alert walk could not confirm the last stored alert within its page limit; **Fill older history** takes a larger walk to catch up.
 
 ## The badge
 

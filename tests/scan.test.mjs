@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, sortNewestFirst, overlapSeconds, passedBoundary, walkDone, walkStep } from '../lib/scan.js';
+import { pageOldest, nextCursor, missingIds, newestOf, backfillStart, resolveBackfill, backfillActive, armBackfill, batchDone, sortNewestFirst, passedBoundary, walkDone, walkStep, clampCatchUpPages, lateBatchDone } from '../lib/scan.js';
 
 test('pageOldest returns the oldest timestamp on the page', () => {
   assert.equal(pageOldest([{ created_at: 30 }, { created_at: 10 }, { created_at: 20 }]), 10);
@@ -11,20 +11,19 @@ test('pageOldest returns 0 for an empty page', () => {
   assert.equal(pageOldest(null), 0);
 });
 
-test('shouldStop continues while more pages remain above the floor', () => {
-  assert.equal(shouldStop({ more: true, oldest: 200, floor: 100 }), false);
+test('lateBatchDone keeps probing up to the page budget below the boundary', () => {
+  assert.equal(lateBatchDone({ page: 2, boundaryPage: 1, catchUpPages: 2 }), false);
+  assert.equal(lateBatchDone({ page: 3, boundaryPage: 1, catchUpPages: 2 }), true);
 });
 
-test('shouldStop stops when the page reaches the floor', () => {
-  assert.equal(shouldStop({ more: true, oldest: 99, floor: 100 }), true);
+test('lateBatchDone counts from the boundary page, not from page 1', () => {
+  assert.equal(lateBatchDone({ page: 6, boundaryPage: 5, catchUpPages: 2 }), false);
+  assert.equal(lateBatchDone({ page: 7, boundaryPage: 5, catchUpPages: 2 }), true);
 });
 
-test('shouldStop keeps scanning when the oldest alert equals the floor', () => {
-  assert.equal(shouldStop({ more: true, oldest: 100, floor: 100 }), false);
-});
-
-test('shouldStop stops when GridPane has no more pages', () => {
-  assert.equal(shouldStop({ more: false, oldest: 200, floor: 100 }), true);
+test('lateBatchDone stays open before the boundary is found', () => {
+  assert.equal(lateBatchDone({ page: 4, boundaryPage: null, catchUpPages: 2 }), false);
+  assert.equal(lateBatchDone({}), false);
 });
 
 test('nextCursor keeps the current cursor when the walk was capped', () => {
@@ -77,6 +76,35 @@ test('backfillStart defaults to page 1 on junk input', () => {
   assert.equal(backfillStart({}), 1);
 });
 
+test('resolveBackfill is idle without a stored record', () => {
+  assert.deepEqual(resolveBackfill({}), { nextPage: 1, done: true });
+  assert.deepEqual(resolveBackfill({ historyDone: false, historyNextPage: 4 }), { nextPage: 1, done: true });
+});
+
+test('resolveBackfill returns the stored record', () => {
+  const record = { nextPage: 7, done: false, userStarted: true };
+  assert.equal(resolveBackfill({ backfill: record }), record);
+});
+
+test('backfillActive needs an armed, unfinished pass', () => {
+  assert.equal(backfillActive({ nextPage: 2, done: false, userStarted: true }), true);
+  assert.equal(backfillActive({ nextPage: 2, done: true, userStarted: true }), false);
+  assert.equal(backfillActive({ nextPage: 2, done: false }), false);
+  assert.equal(backfillActive(null), false);
+  assert.equal(backfillActive(undefined), false);
+});
+
+test('armBackfill starts below the newest page by default', () => {
+  assert.deepEqual(armBackfill(), { nextPage: 2, done: false, userStarted: true });
+});
+
+test('armBackfill accepts page 1 and rejects junk', () => {
+  assert.deepEqual(armBackfill(1), { nextPage: 1, done: false, userStarted: true });
+  assert.deepEqual(armBackfill('9'), { nextPage: 9, done: false, userStarted: true });
+  assert.deepEqual(armBackfill(0), { nextPage: 2, done: false, userStarted: true });
+  assert.deepEqual(armBackfill('x'), { nextPage: 2, done: false, userStarted: true });
+});
+
 test('batchDone is false below the budget', () => {
   assert.equal(batchDone({ page: 10, startPage: 5, batch: 20, more: true }), false);
 });
@@ -111,27 +139,25 @@ test('missingIds returns unseen ids in remote order', () => {
   assert.deepEqual(missing.map((n) => n.id), [42]);
 });
 
-test('overlapSeconds keeps the two-hour default for a missing or invalid value', () => {
-  assert.equal(overlapSeconds(undefined), 7200);
-  assert.equal(overlapSeconds(null), 7200);
-  assert.equal(overlapSeconds(NaN), 7200);
-  assert.equal(overlapSeconds('abc'), 7200);
-  assert.equal(overlapSeconds(-1), 7200);
-  assert.equal(overlapSeconds(0), 7200);
+test('clampCatchUpPages keeps the default for a blank or invalid value', () => {
+  assert.equal(clampCatchUpPages(undefined), 2);
+  assert.equal(clampCatchUpPages(null), 2);
+  assert.equal(clampCatchUpPages(NaN), 2);
+  assert.equal(clampCatchUpPages('abc'), 2);
+  assert.equal(clampCatchUpPages(''), 2);
 });
 
-test('overlapSeconds converts hours to whole seconds', () => {
-  assert.equal(overlapSeconds(0.5), 1800);
-  assert.equal(overlapSeconds(1), 3600);
-  assert.equal(overlapSeconds(1.25), 4500);
-  assert.equal(overlapSeconds(2), 7200);
-  assert.equal(overlapSeconds('2'), 7200);
+test('clampCatchUpPages converts to whole pages in range', () => {
+  assert.equal(clampCatchUpPages(2), 2);
+  assert.equal(clampCatchUpPages('4'), 4);
+  assert.equal(clampCatchUpPages(2.6), 3);
 });
 
-test('overlapSeconds clamps to the allowed range', () => {
-  assert.equal(overlapSeconds(0.1), 1800);
-  assert.equal(overlapSeconds(24), 86400);
-  assert.equal(overlapSeconds(48), 86400);
+test('clampCatchUpPages clamps to the allowed range', () => {
+  assert.equal(clampCatchUpPages(0), 1);
+  assert.equal(clampCatchUpPages(-1), 1);
+  assert.equal(clampCatchUpPages(10), 10);
+  assert.equal(clampCatchUpPages(48), 10);
 });
 
 test('passedBoundary is true when the cursor id is on the page', () => {
@@ -185,7 +211,7 @@ test('the boundary probe reads one clean page past the last stored alert', () =>
 
   // A small loop over the production decision, so the assertions exercise
   // walkStep rather than a copy of its logic.
-  function probeWalk(pages, { cursorId = '1', createdAt = 1000, floor = 0 } = {}) {
+  function probeWalk(pages, { cursorId = '1', createdAt = 1000, catchUpPages = 2 } = {}) {
     const seen = new Set(archived.map((alert) => alert.id));
     let boundaryPage = null;
     let reads = 0;
@@ -196,26 +222,30 @@ test('the boundary probe reads one clean page past the last stored alert', () =>
       for (const alert of fresh) seen.add(alert.id);
       const step = walkStep({
         page: n, items, cursor: { id: cursorId, created_at: createdAt },
-        boundaryPage, freshCount: fresh.length, more: n < pages.length, floor,
+        boundaryPage, freshCount: fresh.length, more: n < pages.length, catchUpPages,
       });
       boundaryPage = step.boundaryPage;
-      if (step.stop) return { reads, boundaryPage, reached: step.reached, floorStop: step.floorStop };
+      if (step.stop) return { reads, boundaryPage, reached: step.reached, lateStop: step.lateStop };
     }
-    return { reads, boundaryPage, reached: false, floorStop: false };
+    return { reads, boundaryPage, reached: false, lateStop: false };
   }
 
   // Quiet: page 1 holds the last stored alert, page 2 confirms nothing is new.
-  assert.deepEqual(probeWalk([page(1, 10), page(11, 20), page(21, 30)]), { reads: 2, boundaryPage: 1, reached: true, floorStop: false });
+  assert.deepEqual(probeWalk([page(1, 10), page(11, 20), page(21, 30)]), { reads: 2, boundaryPage: 1, reached: true, lateStop: false });
 
   // New alerts above the boundary on page 1: still only one confirmation page.
   const withNew = [item('n1', 1100), ...page(1, 9)];
-  assert.deepEqual(probeWalk([withNew, page(11, 20), page(21, 30)]), { reads: 2, boundaryPage: 1, reached: true, floorStop: false });
+  assert.deepEqual(probeWalk([withNew, page(11, 20), page(21, 30)]), { reads: 2, boundaryPage: 1, reached: true, lateStop: false });
 
   // A late alert on the probe page pulls in one more page before the clean stop.
   const lateProbe = [{ id: 'n2', created_at: 900 }, ...page(11, 19)];
-  assert.deepEqual(probeWalk([withNew, lateProbe, page(21, 30)]), { reads: 3, boundaryPage: 1, reached: true, floorStop: false });
+  assert.deepEqual(probeWalk([withNew, lateProbe, page(21, 30)]), { reads: 3, boundaryPage: 1, reached: true, lateStop: false });
 
-  // The overlap cap ends a late-batch probe without confirming a page, so the
+  // A late batch on every page reaches the page cap without a clean stop, so the
   // cursor must not advance.
-  assert.deepEqual(probeWalk([withNew, lateProbe, page(21, 30)], { floor: 950 }), { reads: 2, boundaryPage: 1, reached: false, floorStop: true });
+  const lateAgain = [{ id: 'n3', created_at: 890 }, ...page(21, 29)];
+  assert.deepEqual(probeWalk([withNew, lateProbe, lateAgain, page(31, 40)]), { reads: 3, boundaryPage: 1, reached: false, lateStop: true });
+
+  // A one-page budget stops on the first page below the boundary.
+  assert.deepEqual(probeWalk([withNew, lateProbe, page(21, 30)], { catchUpPages: 1 }), { reads: 2, boundaryPage: 1, reached: false, lateStop: true });
 });

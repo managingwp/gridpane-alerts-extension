@@ -11,5 +11,5 @@ description: "The conditions the archive depends on: Chrome running, an open Gri
 
 ## Related
 
-- [Sync, backfill and gaps](../guides/sync.md)
+- [Sync, history import and gaps](../guides/sync.md)
 - [Data and privacy](./privacy.md)

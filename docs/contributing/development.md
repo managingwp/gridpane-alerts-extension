@@ -28,13 +28,13 @@ Settings → **Sample data** → **Load sample data** seeds the archive with 24 
 
 | File | Owns |
 |---|---|
-| `background.js` | service worker: sync, backfill, gap audit, lookups, webhook delivery, outbox |
+| `background.js` | service worker: sync, history import, gap audit, lookups, webhook delivery, outbox |
 | `app.html`, `app.js`, `app.css` | archive page, Settings, Sync log |
 | `db.js` | IndexedDB `gp-alerts` (notifications, outbox, kv, synclog) |
 | `normalize.js` | alert normalisation and webhook/Slack payloads |
-| `lib/scan.js`, `lib/tabs.js` | pure cursor/backfill helpers and the GridPane tab checks |
+| `lib/scan.js`, `lib/tabs.js` | pure cursor/history-import helpers, the late-batch page clamp and the GridPane tab checks |
 | `lib/polling.js` | pure interval, scheduler-choice, backfill-pacing and sync-log rules |
-| `lib/settings.js`, `lib/settings-backup.js`, `lib/webhook.js` | pure Settings section merges and diffing, the overlap clamp, the settings backup format, and the webhook backfill count/selection |
+| `lib/settings.js`, `lib/settings-backup.js`, `lib/webhook.js` | pure Settings section merges and diffing, the settings backup format, and the webhook backfill count/selection |
 | `timer.html`, `timer.js`, `timer-worker.js` | offscreen timer document and its worker, used below a one-minute interval |
 | `scripts/package.mjs` | packaging and manifest/store validation |
 | `scripts/png.mjs`, `scripts/flatten-screenshots.mjs` | PNG codec and the store screenshot alpha flattener |

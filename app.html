@@ -105,9 +105,9 @@
           <input id="sPollMin" type="number" min="0" max="1440" step="1" aria-label="Check interval minutes"> min
           <input id="sPollSec" type="number" min="0" max="59" step="1" aria-label="Check interval seconds"> sec</label>
         <p class="muted">The shortest interval is 15 seconds. Intervals under a minute use a background timer, because Chrome alarms cannot repeat that quickly in a published extension. A shorter interval checks more often, but each routine check stops at the last stored alert plus one confirmation page, so it stays cheap. If GridPane rate-limits (HTTP 429), checks pause for 5, 15, 30, then 60 minutes.</p>
-        <label class="row">Catch-up overlap
-          <input id="sOverlap" type="number" min="0.5" max="24" step="0.5"> hours</label>
-        <p class="muted">A check stops as soon as the page after the last stored alert is already archived, so a quiet check reads one page plus its confirmation page. The catch-up overlap (2 hours by default) only caps how far a late batch found below that point is followed. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen.</p>
+        <label class="row">Late-batch catch-up
+          <input id="sCatchUpPages" type="number" min="1" max="10" step="1"> pages</label>
+        <p class="muted">A check stops as soon as the page after the last stored alert is already archived, so a quiet check reads one page plus its confirmation page. The late-batch catch-up (2 pages by default) caps how far a late batch found below that point is followed. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen.</p>
         <div class="actions">
           <button id="sSaveSync" class="btn" disabled>Save sync settings</button>
           <span id="sSyncMsg" class="muted"></span>
@@ -125,10 +125,10 @@
 
       <div class="card">
         <h2>Older history</h2>
-        <p class="muted">Older alerts are collected automatically: after the newest ones, every check reads a batch of the pages below (20 per automatic check, more when you press the button). <b>Fill older history</b> only catches up sooner — one page of 8 every 1.5 seconds. If GridPane rate-limits it, the batch stops and the next check resumes from the same page.</p>
+        <p class="muted">Older alerts are imported only when you ask. <b>Fill older history</b> reads the pages below the newest ones, one page of 8 every 1.5 seconds; if it does not finish, the next automatic checks continue the pass. If GridPane rate-limits it, the batch stops and the next check resumes from the same page.</p>
         <div class="actions">
           <button id="sHistory" class="btn ghost">Fill older history</button>
-          <button id="sHistoryReset" class="btn ghost small">Start over from page 1</button>
+          <button id="sHistoryReset" class="btn ghost small">Re-import from page 1</button>
           <span id="sHistoryInfo" class="muted"></span>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import * as store from './db.js';
 import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
-import { pageOldest, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds, walkStep } from './lib/scan.js';
+import { pageOldest, nextCursor, missingIds, newestOf, backfillStart, resolveBackfill, backfillActive, armBackfill, batchDone, clampCatchUpPages, walkStep } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
 import { DEFAULT_INTERVAL_SECONDS, intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
 import { DEFAULT_BACKFILL_COUNT, clampBackfillCount, backfillIds } from './lib/webhook.js';
@@ -13,16 +13,16 @@ const LOOKUP_TTL = 24 * 3600 * 1000;   // server/site names: once a day
 const UNKNOWN_LOOKUP_MIN_GAP = 3600 * 1000; // ...or sooner (max hourly) when an alert mentions an unknown one
 const PAGE_DELAY = 1500;                // pause between paged requests
 const MAX_WALK_PAGES = 50;              // safety cap for the new-alert walk
+const MANUAL_WALK_PAGES = 200;          // a watched manual run may confirm a larger backlog
 const MANUAL_BACKFILL_PAGES = 100;      // older pages a watched manual run consumes
 // GridPane can insert a notification with a timestamp older than the newest one
-// already stored (provisioning notices arrive in a batch). Keep scanning the
-// configured overlap below the cursor so those alerts are stored instead of
-// skipped forever. The setting is in hours; `overlapSeconds` keeps the old
-// two-hour default and bounds the range.
+// already stored (provisioning notices arrive in a batch). The late-batch probe
+// follows such a batch for a bounded number of pages below the last stored
+// alert; the setting is in pages, default 2, and `clampCatchUpPages` bounds it.
 const RATE_LIMIT_STEPS = [5, 15, 30, 60]; // minutes to pause after consecutive 429s
 const DEFAULTS = {
   pollSeconds: DEFAULT_INTERVAL_SECONDS,
-  overlapHours: 2, // 0.5–24 hours, see overlapSeconds()
+  catchUpPages: 2, // 1–10 pages, see clampCatchUpPages()
   webhookEnabled: false,
   webhookUrl: '',
   webhookSecret: '',
@@ -190,14 +190,6 @@ async function storeNew(recs, { sendToWebhook }) {
 
 // ---------- Runs (sync / history import), logging, rate limiting ----------
 
-// Backfill progress lives in state.backfill. Older installs only had the manual
-// history import, so their next page is carried over instead of restarting.
-function backfillState(state) {
-  if (state.backfill) return state.backfill;
-  if (state.historyDone) return { nextPage: 1, done: true };
-  return { nextPage: state.historyNextPage || 1, done: false };
-}
-
 let running = null;
 const GRIDPANE_READ_KINDS = new Set(['sync', 'history']);
 function startRun(kind, fn, trigger = 'auto') {
@@ -209,7 +201,7 @@ function startRun(kind, fn, trigger = 'auto') {
       return { ok: false, status: 'demo', error: 'Sample data is loaded' };
     }
     const before = await getState();
-    run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, newWalkCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
+    run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, newWalkCount: 0, notes: [], freshRecs: [], catchUpPages: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
     let result;
     try {
       // Refuse before the first request: without a panel tab every read would
@@ -229,7 +221,7 @@ function startRun(kind, fn, trigger = 'auto') {
       status: result.status, pages: run.pages, requests: run.requests, rateLimited: run.rateLimited,
       newCount: run.newCount, webhookSent: wh?.sent || 0, webhookFailed: wh?.failed || 0,
       error: result.error || null, notes: run.notes.join(' · '),
-      cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
+      cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, catchUpPages: run.catchUpPages, capped: run.capped,
       boundaryPage: run.boundaryPage ?? null,
       backfillFrom: run.backfillFrom ?? null, backfillTo: run.backfillTo ?? null, backfillDone: run.backfillDone ?? null,
     };
@@ -252,7 +244,7 @@ function startRun(kind, fn, trigger = 'auto') {
         const debug = (await store.kvGet('syncDebug')) || [];
         debug.push({
           started: entry.started, kind, trigger: entry.trigger, status: entry.status,
-          cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, floor: entry.floor, capped: entry.capped,
+          cursorFrom: entry.cursorFrom, cursorTo: entry.cursorTo, catchUpPages: entry.catchUpPages, capped: entry.capped,
           boundaryPage: entry.boundaryPage,
           backfillFrom: entry.backfillFrom, backfillTo: entry.backfillTo, backfillDone: entry.backfillDone,
           pages: run.pageDetail,
@@ -299,13 +291,13 @@ async function handleRunError(e) {
 // Regular sync: read from the newest alert down to the last alert stored by the
 // previous check (the cursor), then confirm the next page and stop as soon as it
 // adds nothing new. A late batch found on that probe page keeps the walk going
-// until a clean page, but never past the configured overlap. The backfill then
-// continues below the probe page so older alerts arrive on their own; using ids
-// keeps every re-read harmless.
+// until a clean page, but never past the configured page cap. Older pages are
+// read only while an armed history import is active; using ids keeps every
+// re-read harmless.
 async function syncNew(r, { batch }) {
   const settings = await getSettings();
   const state = await getState();
-  const backfill = backfillState(state);
+  const backfill = resolveBackfill(state);
   let cursor = state.cursor || null;
 
   // First run (or upgrade): if alerts are already stored, start from the newest one.
@@ -321,16 +313,16 @@ async function syncNew(r, { batch }) {
   // old alerts unless the user asked for it.
   const sendBackfill = settings.webhookEnabled && settings.webhookUrl && settings.webhookIncludeBackfill;
 
-  const overlap = overlapSeconds(settings.overlapHours);
-  const floor = cursor ? cursor.created_at - overlap : 0;
-  r.floor = floor;
+  const catchUpPages = clampCatchUpPages(settings.catchUpPages);
+  r.catchUpPages = catchUpPages;
 
   let newest = null;
   let reached = firstRun;
   let lastWalkedPage = 0;
   let boundaryPage = null;
-  let floorStop = false;
-  for (let page = 1; page <= MAX_WALK_PAGES; page++) {
+  let lateStop = false;
+  const maxWalk = r.trigger === 'manual' ? MANUAL_WALK_PAGES : MAX_WALK_PAGES;
+  for (let page = 1; page <= maxWalk; page++) {
     const j = await gpGet(`/notifications/recent?page=${page}`);
     r.pages = page;
     lastWalkedPage = page;
@@ -344,7 +336,7 @@ async function syncNew(r, { batch }) {
     r.newWalkCount += fresh.length;
     r.freshRecs.push(...fresh);
     const more = !!j.willLoadMoreNoti;
-    const step = walkStep({ page, items, cursor, boundaryPage, freshCount: fresh.length, more, floor });
+    const step = walkStep({ page, items, cursor, boundaryPage, freshCount: fresh.length, more, catchUpPages });
     boundaryPage = step.boundaryPage;
     r.pageDetail.push({
       page, count: items.length, first: String(items[0].id), last: String(items[items.length - 1].id),
@@ -352,22 +344,22 @@ async function syncNew(r, { batch }) {
     });
 
     if (firstRun) { reached = true; break; } // page 1 is the whole new-alert walk
-    // A clean page after the last stored alert ends the walk; an overlap-cap stop
+    // A clean page after the last stored alert ends the walk; a page-cap stop
     // leaves the cursor where it was so the unfollowed late batch is seen again.
-    if (step.stop) { reached = step.reached; floorStop = step.floorStop; break; }
+    if (step.stop) { reached = step.reached; lateStop = step.lateStop; break; }
     await sleep(PAGE_DELAY);
   }
   r.boundaryPage = boundaryPage;
-  r.capped = !reached && !floorStop;
-  if (r.capped) r.notes.push(`stopped at the ${MAX_WALK_PAGES}-page limit before confirming the last stored alert; the backfill continues below it`);
-  if (floorStop) r.notes.push(`late-batch probe stopped at the ${overlap / 3600}-hour overlap; the cursor stays put`);
+  r.capped = !reached && !lateStop;
+  if (r.capped) r.notes.push(`stopped at the ${maxWalk}-page limit before confirming the last stored alert; the backlog is still larger than one run confirms`);
+  if (lateStop) r.notes.push(`late-batch probe stopped at the ${catchUpPages}-page cap; the cursor stays put`);
   if (firstRun) r.notes.push('first run: started tracking from the newest alerts');
 
-  // Backfill: resume below the page the new-alert walk just read. A finished
-  // backfill stays finished unless this walk was capped, in which case the pages
-  // below the cap still need reading.
-  let startPage = backfillStart({ nextPage: backfill.nextPage, lastWalkedPage });
-  if (backfill.done && !r.capped) startPage = null;
+  // History import: resume below the page the new-alert walk just read. Only an
+  // armed, unfinished pass reads older pages.
+  const startPage = backfillActive(backfill)
+    ? backfillStart({ nextPage: backfill.nextPage, lastWalkedPage })
+    : null;
 
   let pagesFrom = null;
   let pagesTo = null;
@@ -405,7 +397,7 @@ async function syncNew(r, { batch }) {
   }
 
   const nextBackfill = startPage
-    ? { nextPage: pausedAt || 1, done, updatedAt: Date.now() }
+    ? { nextPage: pausedAt || 1, done, userStarted: true, updatedAt: Date.now() }
     : { ...backfill, updatedAt: Date.now() };
   r.backfillFrom = pagesFrom;
   r.backfillTo = pagesTo;
@@ -425,11 +417,11 @@ async function syncNew(r, { batch }) {
 
   // The cursor only moves once the walk confirmed the page after the last stored
   // alert (or reached the end of history), and never goes backwards. A walk cut
-  // off by the overlap cap leaves it where it was. The gap flag now tracks the
-  // backfill: it clears when GridPane has no more pages below, not when an audit
-  // happened to see something.
+  // off by the page cap leaves it where it was. The gap flag means the walk
+  // hit the page limit, so the banner reports a real cursor gap rather than the
+  // optional history import.
   const next = nextCursor({ reached, newest, current: cursor });
-  return { cursor: next, syncGap: !nextBackfill.done, backfill: nextBackfill };
+  return { cursor: next, syncGap: r.capped, backfill: nextBackfill };
 }
 
 async function sync(trigger = 'auto') {
@@ -618,7 +610,21 @@ async function scheduleChecks() {
   await chrome.alarms.create(ALARM, { periodInMinutes: alarmPeriodMinutes(pollSeconds), delayInMinutes: 0.1 });
 }
 
+// v1.9 and older armed the history import automatically. An updating install
+// keeps its archive but stops that unrequested pass; only an explicit Fill
+// starts a new one. The old gap flag was the backfill's, so clear it once.
+async function migrateHistoryImportOptIn() {
+  const state = await getState();
+  const patch = {};
+  if (state.syncGap) patch.syncGap = false;
+  if (state.backfill && state.backfill.done === false && state.backfill.userStarted !== true) {
+    patch.backfill = { ...state.backfill, done: true };
+  }
+  if (Object.keys(patch).length) await setState(patch);
+}
+
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason === 'update') await migrateHistoryImportOptIn();
   await scheduleChecks();
   if (reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
 });
@@ -712,7 +718,7 @@ async function exitDemo() {
   await chrome.storage.local.set({ settings: { ...DEFAULTS, ...(demo.previousSettings || {}) } });
   await setState({
     status: 'ok', lastError: null, lastSync: null, lastAttempt: null,
-    cursor: null, backfill: { nextPage: 1, done: false }, unseen: 0,
+    cursor: null, backfill: { nextPage: 1, done: true }, unseen: 0,
     syncGap: false, syncing: false, syncMode: null, syncPage: 0,
     rateLimitStreak: 0, backoffUntil: 0,
   });
@@ -724,8 +730,12 @@ async function exitDemo() {
 
 const handlers = {
   sync: () => sync('manual'),
-  importHistory: () => startRun('history', async (r) => { r.trigger = 'manual'; return syncNew(r, { batch: MANUAL_BACKFILL_PAGES }); }, 'manual'),
-  resetHistory: async () => { await setState({ backfill: { nextPage: 1, done: false } }); return { ok: true }; },
+  importHistory: () => startRun('history', async (r) => {
+    const current = resolveBackfill(await getState());
+    await setState({ backfill: armBackfill(backfillActive(current) ? current.nextPage || 2 : 2) });
+    return syncNew(r, { batch: MANUAL_BACKFILL_PAGES });
+  }, 'manual'),
+  resetHistory: async () => { await setState({ backfill: armBackfill(1) }); return { ok: true }; },
   settingsChanged: async () => { await scheduleChecks(); await flushOutbox(); return { ok: true }; },
   testWebhook: async () => ({ ok: true, status: await testWebhook() }),
   backfillWebhook: async (message) => backfillWebhook(message?.count),
