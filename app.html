@@ -109,10 +109,6 @@
           <input id="sOverlap" type="number" min="0.5" max="24" step="0.5"> hours</label>
         <p class="muted">A check stops as soon as the page after the last stored alert is already archived, so a quiet check reads one page plus its confirmation page. The catch-up overlap (2 hours by default) only caps how far a late batch found below that point is followed. Alerts are read from your signed-in GridPane session in this browser, and Chrome needs to be running for checks to happen.</p>
         <div class="actions">
-          <button id="sSaveSync" class="btn">Save sync settings</button>
-          <span id="sSyncMsg" class="muted"></span>
-        </div>
-        <div class="actions">
           <button id="sSaveSync" class="btn" disabled>Save sync settings</button>
           <span id="sSyncMsg" class="muted"></span>
         </div>
