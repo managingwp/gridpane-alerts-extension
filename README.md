@@ -35,9 +35,9 @@
 
 ## What it does
 
-- **Archives on a schedule.** Reads `GET https://my.gridpane.com/notifications/recent?page=N` with your session, every 5 minutes by default, and never marks anything as read.
+- **Archives on a schedule.** Reads `GET https://my.gridpane.com/notifications/recent?page=N` with your session, every 5 minutes by default (15 seconds to 24 hours in Settings), and never marks anything as read.
 - **Finds anything.** Stores the full alert text in IndexedDB, with sortable columns, field-prefixed search, and CSV/JSON export of the filtered view.
-- **Backfills the bell.** Pulls in older pages automatically (20 per check, 100 on demand) and audits the archive for gaps.
+- **Backfills the bell.** Pulls in older pages automatically (up to 20 per check, 100 on demand) and audits the archive for gaps.
 - **Forwards new alerts.** Posts full JSON, chat text or a Slack card to a webhook you choose, with an id header, an optional HMAC signature and an outbox that retries for an hour.
 
 ## Privacy

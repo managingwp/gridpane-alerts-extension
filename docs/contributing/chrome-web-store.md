@@ -55,7 +55,7 @@ Keep the disclaimer line from `store/listing.json` `disclaimer` in the descripti
 | Certifications | `store/listing.json` `certifications` |
 | Privacy policy URL | `store/listing.json` `privacyPolicyUrl` |
 
-`node scripts/package.mjs --check` is the guard: it fails when a manifest permission has no justification, or a justification names something the manifest does not request.
+`node scripts/package.mjs --check` is the guard: it fails when a manifest permission has no justification, or a justification names something the manifest does not request. `offscreen` is present only for check intervals under a minute; its justification must say the hidden page runs the timer and touches neither page content nor the network.
 
 ## Distribution tab
 

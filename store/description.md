@@ -6,13 +6,13 @@ GridPane's notification bell only keeps recent alerts, and the panel has no way 
 
 WHAT IT DOES
 
-Keeps an archive continuously, every five minutes by default (configurable, minimum two minutes).
+Keeps an archive continuously, every five minutes by default (configurable from 15 seconds to 24 hours).
 Searches by text, title, server, site, IP, severity, author or id, with quoted phrases and exclusions.
 Filters and sorts by date, severity, alert type, server and site, and can group similar alerts.
 Shows the full alert message, with the raw JSON and a copy button on each row.
 Exports whatever is currently filtered as CSV or JSON.
 Shows a badge with the number of new alerts since you last opened the page.
-Records every check in a sync log, including what was scanned, what was stored and how long it took, and exports that log as CSV.
+Records each check that stores a new alert, plus a five-minute heartbeat, in a sync log with what was scanned, what was stored and how long it took, and exports that log as CSV.
 Reports gaps in the archive and re-imports older history, so an interrupted check does not leave a hole.
 Optionally forwards each new alert to a webhook you choose — full JSON, chat text or a Slack message, with an optional HMAC signature, a retry queue, and headers you can de-duplicate on.
 
