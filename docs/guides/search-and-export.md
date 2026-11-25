@@ -5,7 +5,7 @@ description: Sort the archive, search with field prefixes, choose columns, and e
 
 ## The archive page
 
-Click the toolbar icon. Columns: date, severity, alert, message, server, site, created by; plus optional server IP, read state and ID (Columns menu). Click a header to sort. The Message column shows the full alert text; click a row to expand it for the raw JSON and copy button.
+Click the toolbar icon. Columns: date, severity, alert, message, server, site, created by; plus optional server IP, read state and ID (Columns menu). Click a header to sort. The Message column shows the full alert text; click a row to expand it for the raw JSON and copy button. Hover a row to reveal small copy buttons beside the Message, Server and Site values; each copies that cell's text without opening the row, and the buttons stay visible on touch screens.
 
 ## Search
 

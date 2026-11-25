@@ -20,9 +20,9 @@ This page is a reference map, not a decision. It separates what ships now from w
 
 The extension pages `GET https://my.gridpane.com/notifications/recent?page=N` with the session your browser already has, inside an open `https://my.gridpane.com/` tab. It never marks an alert as read.
 
-- Checks every 5 minutes by default (minimum 2).
+- Checks every 5 minutes by default, 15 seconds to 24 hours in Settings.
 - Pages back through a configurable overlap below the cursor — 2 hours by default, 0.5–24 — so an alert GridPane inserts late is still stored.
-- Runs a resumable backfill (20 older pages per automatic check, up to 100 per manual run) and a 50-page gap audit.
+- Runs a resumable backfill (up to 20 older pages per automatic check, paced at about one page per 15 seconds, and up to 100 per manual run) and a 50-page gap audit.
 - Pauses on 429 with 5/15/30/60-minute backoff and resumes the same page.
 - Covers only the team currently selected in the panel, and only what GridPane keeps in the bell.
 

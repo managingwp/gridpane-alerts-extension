@@ -10,6 +10,7 @@
 // Node can import it directly in tests.
 
 import { normalize } from './normalize.js';
+import { DEFAULT_INTERVAL_SECONDS } from './lib/polling.js';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -337,7 +338,7 @@ export function buildDemo(now = Date.now()) {
   };
 
   const settings = {
-    pollMinutes: 5,
+    pollSeconds: DEFAULT_INTERVAL_SECONDS,
     overlapHours: 2,
     webhookEnabled: true,
     webhookUrl: 'https://hooks.example.com/services/demo',

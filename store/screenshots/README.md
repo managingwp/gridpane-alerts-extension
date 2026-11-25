@@ -26,7 +26,11 @@ The loader never contacts GridPane or the webhook.
    to **1280 × 800**, and close the drawer so no DevTools chrome is in the shot.
 5. Capture the viewport only, not the full page — browser screenshots at exactly
    the viewport size, or the DevTools capture with the same dimensions.
-6. Flatten the PNG onto an opaque background; the store rejects transparency.
+6. Strip the alpha channel: `node scripts/flatten-screenshots.mjs store/screenshots`.
+   Chrome writes every capture as RGBA even when nothing is transparent, and the
+   store rejects alpha. The script rewrites the file as RGB without resampling a
+   pixel; it refuses to resize, so a wrong-sized capture is re-taken at an
+   emulated 1280×800 viewport, never padded or stretched.
 7. Save with this naming:
 
 | File | Shows |
@@ -55,9 +59,12 @@ the name and email of whoever triggered an alert. Do not publish any of it.
 ## Verify
 
 ```bash
+node scripts/flatten-screenshots.mjs store/screenshots
 node scripts/check-screenshots.mjs store/screenshots
 ```
 
-Expected: four lines naming 1280×800 files, no warnings, `4 file(s), 0 problem(s)`,
-exit 0. A warning means the file still has an alpha channel; a problem means the
-dimensions or the file format are wrong.
+Expected: `4 file(s), 0 fixed, 0 problem(s)` from the flattener — a second run is a
+no-op, so it is safe on every release — then four lines naming 1280×800 files,
+no warnings, `4 file(s), 0 problem(s)`, exit 0. A warning means the file still has
+an alpha channel; a problem means the dimensions or the file format are wrong, and
+a doubled `.png.png` name does not match the table above.
