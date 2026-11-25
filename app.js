@@ -23,10 +23,10 @@ const COLUMNS = [
   { key: 'first', label: 'First seen', groupOnly: true, sort: (r) => r._group?.first ?? r.created_at, text: (r) => fmtDate(r._group?.first ?? r.created_at) },
   { key: 'severity', label: 'Severity', sort: (r) => ({ error: 0, warning: 1, info: 2 })[r.severity], text: (r) => r.severity, on: true },
   { key: 'title', label: 'Alert', sort: (r) => r.title.toLowerCase(), text: (r) => r.title, on: true, hl: true },
-  { key: 'message', label: 'Message', sort: (r) => r.message.toLowerCase(), text: (r) => r.message, on: true, hl: true },
-  { key: 'server', label: 'Server', sort: (r) => r._server.toLowerCase(), text: (r) => r._server, on: true, hl: true },
+  { key: 'message', label: 'Message', sort: (r) => r.message.toLowerCase(), text: (r) => r.message, on: true, hl: true, copy: true },
+  { key: 'server', label: 'Server', sort: (r) => r._server.toLowerCase(), text: (r) => r._server, on: true, hl: true, copy: true },
   { key: 'ip', label: 'Server IP', sort: (r) => r._ip, text: (r) => r._ip, on: false, hl: true },
-  { key: 'site', label: 'Site', sort: (r) => r._site.toLowerCase(), text: (r) => r._site, on: true, hl: true },
+  { key: 'site', label: 'Site', sort: (r) => r._site.toLowerCase(), text: (r) => r._site, on: true, hl: true, copy: true },
   { key: 'creator', label: 'Created by', sort: (r) => r.creator_name.toLowerCase(), text: (r) => r.creator_name, on: true },
   { key: 'read', label: 'Read in GridPane', sort: (r) => (r.read ? 1 : 0), text: (r) => (r.read ? 'Yes' : 'No'), on: false },
   { key: 'id', label: 'ID', sort: (r) => r._group?.items[0].id ?? r.id, text: (r) => r._group?.items[0].id ?? r.id, on: false },
@@ -213,6 +213,63 @@ function highlight(text) {
 
 function visibleCols() { return COLUMNS.filter((c) => (c.groupOnly ? ui.group : ui.cols.has(c.key))); }
 
+// ---------- Cell copy ----------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const copyTimers = new WeakMap();
+
+function copyIcon(kind) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const add = (tag, attrs) => {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    svg.append(node);
+  };
+  if (kind === 'check') add('path', { d: 'M20 6 9 17l-5-5' });
+  else {
+    add('rect', { width: '14', height: '14', x: '8', y: '8', rx: '2', ry: '2' });
+    add('path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' });
+  }
+  return svg;
+}
+
+const copyLive = el('div', { className: 'sr-only' });
+copyLive.setAttribute('role', 'status');
+copyLive.setAttribute('aria-live', 'polite');
+document.body.append(copyLive);
+
+function copyCellButton(label, value) {
+  const btn = el('button', { type: 'button', className: 'copy-cell' });
+  btn.setAttribute('aria-label', `Copy ${label.toLowerCase()}`);
+  btn.append(copyIcon('copy'));
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      clearTimeout(copyTimers.get(btn));
+      btn.classList.add('copied');
+      btn.replaceChildren(copyIcon('check'));
+      copyTimers.set(btn, setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.replaceChildren(copyIcon('copy'));
+        copyTimers.delete(btn);
+      }, 1600));
+      copyLive.textContent = `${label} copied`;
+    } catch {
+      copyLive.textContent = `Could not copy ${label.toLowerCase()}`;
+    }
+  };
+  return btn;
+}
+
+
 function renderHead() {
   $('head').replaceChildren(...visibleCols().map((c) => {
     const th = el('th', { textContent: ui.group && c.groupLabel ? c.groupLabel : c.label });
@@ -227,16 +284,27 @@ function renderHead() {
 
 function cell(c, r) {
   const td = el('td', { className: `c-${c.key}` });
-  if (c.key === 'severity') td.append(el('span', { className: `sev ${r.severity}`, textContent: r.severity }));
-  else if (c.key === 'message') td.append(el('div', { className: 'msg' }, highlight(r.message)));
-  else if (c.key === 'date') { td.textContent = fmtDate(r.created_at); td.title = r.date_text || ''; }
+  const body = c.copy ? el('div', { className: 'cell-body' }) : null;
+  const target = body ? el('div', { className: 'cell-value' }) : td;
+  if (c.key === 'severity') target.append(el('span', { className: `sev ${r.severity}`, textContent: r.severity }));
+  else if (c.key === 'message') target.append(el('div', { className: 'msg' }, highlight(r.message)));
+  else if (c.key === 'date') { target.textContent = fmtDate(r.created_at); target.title = r.date_text || ''; }
   else if (c.key === 'count') {
     const n = r._group?.count ?? 1;
-    td.append(el('span', { className: 'count' + (n > 1 ? ' multi' : ''), textContent: n > 1 ? `×${n}` : '1' }));
+    target.append(el('span', { className: 'count' + (n > 1 ? ' multi' : ''), textContent: n > 1 ? `×${n}` : '1' }));
   }
-  else if (c.key === 'first') { td.textContent = (r._group?.count ?? 1) > 1 ? c.text(r) : ''; td.classList.add('c-date'); }
-  else if (c.hl) td.append(highlight(c.text(r)));
-  else td.textContent = c.text(r);
+  else if (c.key === 'first') { target.textContent = (r._group?.count ?? 1) > 1 ? c.text(r) : ''; td.classList.add('c-date'); }
+  else if (c.hl) target.append(highlight(c.text(r)));
+  else target.textContent = c.text(r);
+  if (body) {
+    td.append(body);
+    body.append(target);
+    const value = c.text(r) || '';
+    if (value) {
+      td.classList.add('has-copy');
+      body.append(copyCellButton(c.label, value));
+    }
+  }
   return td;
 }
 
