@@ -3,7 +3,7 @@ import { normalize, webhookPayload } from './normalize.js';
 import { buildDemo } from './demo.js';
 import { pageOldest, shouldStop, nextCursor, missingIds, newestOf, backfillStart, batchDone, overlapSeconds } from './lib/scan.js';
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
-import { intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes } from './lib/polling.js';
+import { intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -12,7 +12,6 @@ const LOOKUP_TTL = 24 * 3600 * 1000;   // server/site names: once a day
 const UNKNOWN_LOOKUP_MIN_GAP = 3600 * 1000; // ...or sooner (max hourly) when an alert mentions an unknown one
 const PAGE_DELAY = 1500;                // pause between paged requests
 const MAX_WALK_PAGES = 50;              // safety cap for the new-alert walk
-const AUTO_BACKFILL_PAGES = 20;         // older pages an automatic run consumes
 const MANUAL_BACKFILL_PAGES = 100;      // older pages a watched manual run consumes
 // GridPane can insert a notification with a timestamp older than the newest one
 // already stored (provisioning notices arrive in a batch). Keep scanning the
@@ -208,7 +207,7 @@ function startRun(kind, fn, trigger = 'auto') {
       return { ok: false, status: 'demo', error: 'Sample data is loaded' };
     }
     const before = await getState();
-    run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
+    run = { kind, trigger, started: Date.now(), requests: 0, rateLimited: 0, pages: 0, newCount: 0, newWalkCount: 0, notes: [], freshRecs: [], floor: 0, capped: false, pageDetail: [], cursorFrom: before.cursor || null };
     let result;
     try {
       // Refuse before the first request: without a panel tab every read would
@@ -231,12 +230,21 @@ function startRun(kind, fn, trigger = 'auto') {
       cursorFrom: run.cursorFrom, cursorTo: after.cursor || null, floor: run.floor, capped: run.capped,
       backfillFrom: run.backfillFrom ?? null, backfillTo: run.backfillTo ?? null, backfillDone: run.backfillDone ?? null,
     };
-    // An automatic alarm in the no-tab state would add 288 rows a day at the
-    // 5-minute default and push real runs out of the 1,000-entry log. A manual
-    // attempt still records one row, so the click is auditable.
-    const quiet = result.status === 'no_tab' && run.trigger !== 'manual';
+    // A short interval runs this same path many times an hour, so the log keeps
+    // a heartbeat instead of a row per check: an automatic run is recorded when
+    // it stored a new-walk alert or when no automatic row was written for five
+    // minutes. A manual attempt always records one row, so the click is
+    // auditable, and an automatic no-tab run records none.
+    const quiet = !shouldLogRun({
+      trigger: run.trigger,
+      status: result.status,
+      newWalkCount: run.newWalkCount,
+      lastAutoLogAt: after.lastAutoLogAt,
+      now: Date.now(),
+    });
     if (!quiet) {
       await store.addLog(entry);
+      if (run.trigger !== 'manual') await setState({ lastAutoLogAt: Date.now() });
       try {
         const debug = (await store.kvGet('syncDebug')) || [];
         debug.push({
@@ -326,6 +334,7 @@ async function syncNew(r, { batch }) {
 
     const fresh = await storeNew(items.map(normalize), { sendToWebhook: sendNew });
     r.newCount += fresh.length;
+    r.newWalkCount += fresh.length;
     r.freshRecs.push(...fresh);
     r.pageDetail.push({
       page, count: items.length, first: String(items[0].id), last: String(items[items.length - 1].id),
@@ -412,8 +421,10 @@ async function sync(trigger = 'auto') {
   const state = await getState();
   if (trigger === 'auto' && state.backoffUntil && state.backoffUntil > Date.now()) return { ok: false, status: 'waiting' };
   // A manual run is watched by the user, so it takes the larger batch; automatic
-  // runs stay page-paced and rate-limit aware.
-  const batch = trigger === 'manual' ? MANUAL_BACKFILL_PAGES : AUTO_BACKFILL_PAGES;
+  // runs stay page-paced and rate-limit aware. A short interval gets fewer pages
+  // per check, which keeps the historical one-page-per-15-seconds pace.
+  const settings = await getSettings();
+  const batch = trigger === 'manual' ? MANUAL_BACKFILL_PAGES : autoBackfillPages(settings.pollSeconds);
   return startRun('sync', async (r) => { r.trigger = trigger; return syncNew(r, { batch }); }, trigger);
 }
 
