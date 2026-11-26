@@ -41,6 +41,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 ## Operations
 
 - **Settings.** Check interval (15 seconds–24 hours), late-batch catch-up pages, visible columns, webhook URL/format/secret, history forwarding, the last N stored alerts backfill, the outbox, the gap audit and the history-import controls; the Sync and Webhook cards save independently and write only changed fields, and a local JSON backup restores both cards without touching the archive (`app.html`, `app.js`, `lib/settings.js`, `lib/settings-backup.js`).
+- **Source link.** Every view carries a footer link to the GitHub repository for the code, issues and releases (`app.html`, `app.css`).
 - **No build step.** `node --test` covers the pure helpers, the Slack payload and the packager; `scripts/package.mjs` builds and validates the zip (`tests/`, `scripts/package.mjs`).
 - **Manual install and release.** A release zip loads unpacked; a tag builds and attaches the same zip (`docs/contributing/release.md`).
 

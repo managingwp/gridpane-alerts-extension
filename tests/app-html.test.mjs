@@ -26,3 +26,10 @@ test('the sync save button starts disabled until settings are painted', () => {
   assert.ok(button, 'app.html has no sync save button');
   assert.match(button[0], /\bdisabled\b/);
 });
+
+test('the page links to the source repository', () => {
+  const link = html.match(/<a\b[^>]*href\s*=\s*["']https:\/\/github\.com\/managingwp\/gridpane-alerts-extension["'][^>]*>/);
+  assert.ok(link, 'app.html has no GitHub repository link');
+  assert.match(link[0], /\btarget\s*=\s*["']_blank["']/);
+  assert.match(link[0], /\brel\s*=\s*["']noopener noreferrer["']/);
+});
