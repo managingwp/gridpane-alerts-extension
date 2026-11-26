@@ -484,7 +484,7 @@ async function renderStatus() {
   const st = $('status');
   const banner = $('banner');
   const paused = state.status === 'rate_limited' && state.backoffUntil > Date.now();
-  st.classList.toggle('bad', state.status === 'signed_out' || state.status === 'no_tab' || state.status === 'error' || paused);
+  st.classList.toggle('bad', state.status === 'signed_out' || state.status === 'no_tab' || state.status === 'error' || state.status === 'unavailable' || paused);
   if (state.syncing) {
     st.textContent = state.syncMode === 'history' ? `Importing older history… page ${state.syncPage || 0}` : `Checking for new alerts… page ${state.syncPage || 1}`;
   } else if (paused) {
@@ -493,6 +493,8 @@ async function renderStatus() {
     st.textContent = 'Not signed in';
   } else if (state.status === 'no_tab') {
     st.textContent = 'GridPane tab not open';
+  } else if (state.status === 'unavailable') {
+    st.textContent = 'GridPane unavailable';
   } else if (state.status === 'error') {
     st.textContent = 'Sync error';
   } else if (backfillActive(state.backfill)) {
@@ -520,6 +522,9 @@ async function renderStatus() {
   } else if (paused && !state.syncing) {
     banner.textContent = `GridPane is rate-limiting requests (HTTP 429). Automatic checks are paused until ${new Date(state.backoffUntil).toLocaleTimeString()}; nothing is lost, the next check picks up from the last synced alert.`;
     banner.hidden = false;
+  } else if (state.status === 'unavailable' && !state.syncing) {
+    banner.textContent = `GridPane is unavailable: ${state.lastError}`;
+    banner.hidden = false;
   } else if (state.status === 'error' && !state.syncing) {
     banner.textContent = `Last sync failed: ${state.lastError}`;
     banner.hidden = false;
@@ -536,8 +541,8 @@ async function renderStatus() {
 }
 
 // ---------- Sync log ----------
-const RESULT_LABEL = { ok: 'OK', rate_limited: 'Rate limited', signed_out: 'Signed out', no_tab: 'No GridPane tab', error: 'Error' };
-const RESULT_CLASS = { ok: 'info', rate_limited: 'warning', signed_out: 'warning', no_tab: 'warning', error: 'error' };
+const RESULT_LABEL = { ok: 'OK', rate_limited: 'Rate limited', signed_out: 'Signed out', no_tab: 'No GridPane tab', unavailable: 'GridPane unavailable', error: 'Error' };
+const RESULT_CLASS = { ok: 'info', rate_limited: 'warning', signed_out: 'warning', no_tab: 'warning', unavailable: 'error', error: 'error' };
 const dur = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} m ${Math.round((ms % 60000) / 1000)} s`);
 const clock = (unix) => (unix ? new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–');
 const cursorText = (e) => `${clock(e.cursorFrom?.created_at)} → ${clock(e.cursorTo?.created_at)}`;

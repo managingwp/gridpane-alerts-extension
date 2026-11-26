@@ -18,7 +18,7 @@ This page is a reference map, not a decision. It separates what ships now from w
 
 ### Implemented: read inside a signed-in GridPane tab
 
-The extension pages `GET https://my.gridpane.com/notifications/recent?page=N` with the session your browser already has, inside an open `https://my.gridpane.com/` tab. It never marks an alert as read.
+The extension pages `GET https://my.gridpane.com/notifications/recent` for page 1 and `?page=N` for older pages, with the session your browser already has, inside an open `https://my.gridpane.com/` tab. It never marks an alert as read. Since 2026-11-26 GridPane answers `?page=1` with a Cloudflare 503 maintenance page, so the extension omits the parameter for page 1; a maintenance response is reported as "GridPane unavailable" rather than a sign-out.
 
 - Checks every 5 minutes by default, 15 seconds to 24 hours in Settings.
 - Stops at the last stored alert: each check reads down to the cursor, then reads the page after the last stored alert and stops when that page is already archived. The configurable late-batch catch-up — 2 pages by default, 1–10 — only caps how far a late batch found on the confirmation page is followed.

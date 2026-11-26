@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GridPane Alerts Archive",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "minimum_chrome_version": "116",
   "description": "Keeps a searchable archive of GridPane notification-centre alerts and forwards new ones to a webhook.",
   "permissions": ["storage", "unlimitedStorage", "alarms", "offscreen", "scripting"],

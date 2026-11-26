@@ -34,6 +34,7 @@ export const RUNTIME_FILES = [
   'lib/settings.js',
   'lib/settings-backup.js',
   'lib/webhook.js',
+  'lib/gridpane.js',
   'app.html',
   'app.js',
   'app.css',

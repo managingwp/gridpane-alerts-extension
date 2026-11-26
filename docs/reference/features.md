@@ -7,7 +7,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 
 ## Collection
 
-- **Reads the notification bell with your session.** `GET https://my.gridpane.com/notifications/recent?page=N`, the same endpoint the bell uses; it never marks an alert as read (`background.js`).
+- **Reads the notification bell with your session.** `GET https://my.gridpane.com/notifications/recent` for page 1 and `?page=N` for older pages, the same endpoint the bell uses; it never marks an alert as read (`background.js`, `lib/gridpane.js`).
 - **Scheduled checks.** Every 5 minutes by default, 15 seconds to 24 hours in Settings. Intervals under a minute run from a worker in an offscreen document, because published alarms cannot repeat faster than 30 seconds (`lib/polling.js`, `background.js`, `timer.js`).
 - **Boundary probe.** Each check reads from the newest alert to the last alert stored by the previous check, then reads the page after the last stored alert. It stops when that page is already archived and keeps going only while a page adds something new (`lib/scan.js`, `background.js`).
 - **Late-batch catch-up.** A late batch found below the last stored alert is followed no further than the configured page budget — 2 pages by default, 1–10 in Settings. A late alert deeper than that is left to the gap audit (`lib/scan.js`, `background.js`).
@@ -16,6 +16,7 @@ This page lists only behaviour that ships. Planned, possible and abandoned work 
 - **GridPane tab preflight.** Every manual and automatic run, the history import, the gap audit and the name refresh stop before the first request without an open `https://my.gridpane.com/` tab; the banner offers **Open GridPane** (`lib/tabs.js`, `background.js`).
 - **Retry on tab load.** Opening the tab after a no-tab check starts one automatic sync when it finishes loading, at most once per 30 seconds (`lib/tabs.js`, `background.js`).
 - **Rate-limit handling.** A short `Retry-After` is waited out; otherwise automatic checks pause for 5, 15, 30 then 60 minutes, resuming the same page. A shorter interval sends more checks; a routine check stays a page or two, while a backlog of new alerts takes the pages it needs (`background.js`).
+- **Maintenance page handling.** Since 2026-11-26 GridPane answers `?page=1` with a Cloudflare 503 maintenance page; page 1 is requested without the parameter, and a 503 or the "We'll be back soon!" HTML is reported as **GridPane unavailable** in the status, banner, badge and Sync log rather than as a sign-out (`lib/gridpane.js`, `background.js`, `app.js`).
 - **Name lookups.** Server and site names come from `/api/v1/servers` and `/api/v1/sites`, refreshed daily; names of deleted servers are kept (`background.js`).
 
 ## Archive

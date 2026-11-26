@@ -5,6 +5,7 @@ import { pageOldest, nextCursor, missingIds, newestOf, backfillStart, resolveBac
 import { pickGridPaneTab, shouldRetryOnTabLoad, isGridPaneUrl } from './lib/tabs.js';
 import { DEFAULT_INTERVAL_SECONDS, intervalSecondsFromSettings, usesTimerDocument, alarmPeriodMinutes, autoBackfillPages, shouldLogRun } from './lib/polling.js';
 import { DEFAULT_BACKFILL_COUNT, clampBackfillCount, backfillIds } from './lib/webhook.js';
+import { notificationsPath, isMaintenanceResponse } from './lib/gridpane.js';
 
 const BASE = 'https://my.gridpane.com';
 const GRIDPANE_ROOT = BASE + '/';
@@ -59,6 +60,7 @@ async function demoState() {
 
 class SignedOutError extends Error {}
 class NoTabError extends Error {}
+class UnavailableError extends Error {}
 class RateLimitError extends Error {
   constructor(retryAfterSec) { super('GridPane rate limit (HTTP 429)'); this.retryAfterSec = retryAfterSec; }
 }
@@ -75,8 +77,11 @@ function retryAfterSeconds(v) {
   return Number.isFinite(t) ? Math.max(0, Math.round((t - Date.now()) / 1000)) : null;
 }
 
-function parseResponse({ status, ct, url, body, retryAfter }) {
+function parseResponse({ status, ct, url, body, retryAfter, path }) {
   if (status === 429) throw new RateLimitError(retryAfterSeconds(retryAfter));
+  if (isMaintenanceResponse({ status, ct, body })) {
+    throw new UnavailableError(`GridPane returned its maintenance page (HTTP ${status}) for ${path}`);
+  }
   if (status === 401 || status === 419 || /\/login(\?|$)/.test(url || '') || !(ct || '').includes('json')) {
     throw new SignedOutError('Not signed in to GridPane');
   }
@@ -86,7 +91,7 @@ function parseResponse({ status, ct, url, body, retryAfter }) {
 
 async function fetchDirect(path) {
   const r = await fetch(BASE + path, { credentials: 'include', headers: GP_HEADERS });
-  return parseResponse({ status: r.status, ct: r.headers.get('content-type'), url: r.url, body: await r.text(), retryAfter: r.headers.get('retry-after') });
+  return parseResponse({ status: r.status, ct: r.headers.get('content-type'), url: r.url, body: await r.text(), retryAfter: r.headers.get('retry-after'), path });
 }
 
 // Chrome withholds GridPane's session cookie from the extension's own fetch, so a
@@ -117,7 +122,7 @@ async function fetchViaTab(path) {
       return { status: r.status, ct: r.headers.get('content-type'), url: r.url, body: await r.text(), retryAfter: r.headers.get('retry-after') };
     },
   });
-  return parseResponse(result);
+  return parseResponse({ ...result, path });
 }
 
 async function gpGetOnce(path) {
@@ -276,6 +281,10 @@ async function handleRunError(e) {
     run.notes.push(`paused until ${new Date(until).toLocaleTimeString()}`);
     return { ok: false, status: 'rate_limited', error: msg };
   }
+  if (e instanceof UnavailableError) {
+    await setState({ status: 'unavailable', lastError: msg });
+    return { ok: false, status: 'unavailable', error: msg };
+  }
   if (e instanceof SignedOutError) {
     await setState({ status: 'signed_out', lastError: msg });
     return { ok: false, status: 'signed_out', error: msg };
@@ -323,7 +332,7 @@ async function syncNew(r, { batch }) {
   let lateStop = false;
   const maxWalk = r.trigger === 'manual' ? MANUAL_WALK_PAGES : MAX_WALK_PAGES;
   for (let page = 1; page <= maxWalk; page++) {
-    const j = await gpGet(`/notifications/recent?page=${page}`);
+    const j = await gpGet(notificationsPath(page));
     r.pages = page;
     lastWalkedPage = page;
     await setState({ syncPage: page });
@@ -368,7 +377,7 @@ async function syncNew(r, { batch }) {
   if (startPage) {
     let page = startPage;
     for (;;) {
-      const j = await gpGet(`/notifications/recent?page=${page}`);
+      const j = await gpGet(notificationsPath(page));
       r.pages = Math.max(r.pages, page);
       await setState({ syncPage: page });
       const items = j.notifications || [];
@@ -441,7 +450,7 @@ async function gapAudit() {
   let pages = 0;
   let done = false;
   for (let page = 1; page <= MAX_WALK_PAGES; page++) {
-    const j = await gpGet(`/notifications/recent?page=${page}`);
+    const j = await gpGet(notificationsPath(page));
     const items = j.notifications || [];
     remote.push(...items);
     pages = page;
@@ -558,7 +567,7 @@ async function backfillWebhook(count) {
 
 async function updateBadge() {
   const s = await getState();
-  if (s.status === 'signed_out' || s.status === 'no_tab' || s.status === 'error' || s.status === 'rate_limited') {
+  if (s.status === 'signed_out' || s.status === 'no_tab' || s.status === 'error' || s.status === 'rate_limited' || s.status === 'unavailable') {
     await chrome.action.setBadgeBackgroundColor({ color: '#d97706' });
     await chrome.action.setBadgeText({ text: s.status === 'rate_limited' ? '⏸' : '!' });
     await chrome.action.setTitle({ title: `GridPane Alerts — ${s.lastError || 'sync problem'}` });
